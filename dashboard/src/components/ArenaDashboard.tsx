@@ -46,6 +46,7 @@ interface ArenaDashboardProps {
   isConnected: boolean;
   onStart: () => void;
   onStop: () => void;
+  onAttackInjected?: (injectedCount: number, detected: number, addedRoi: number) => void;
 }
 
 export default function ArenaDashboard({ 
@@ -54,7 +55,8 @@ export default function ArenaDashboard({
   isRunning, 
   isConnected, 
   onStart, 
-  onStop 
+  onStop,
+  onAttackInjected,
 }: ArenaDashboardProps) {
   return (
     <div className="w-full">
@@ -104,6 +106,7 @@ export default function ArenaDashboard({
               isConnected={isConnected}
               onStart={onStart}
               onStop={onStop}
+              onAttackInjected={onAttackInjected}
             />
           )}
           {activeTab === 'topology' && <TopologyGraph />}

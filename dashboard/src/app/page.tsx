@@ -25,14 +25,14 @@ export default function Page() {
   const [isConnected, setIsConnected] = useState(false);
   const [loadingAction, setLoadingAction] = useState(false);
   
-  // Real-time live metrics
-  const [totalAttacks, setTotalAttacks] = useState(128);
-  const [detectedCount, setDetectedCount] = useState(89);
-  const [detectionRate, setDetectionRate] = useState(69.5);
-  const [latencyMs, setLatencyMs] = useState(12.3);
-  const [roiAmount, setRoiAmount] = useState(2723200);
+  // Real-time live simulation metrics
+  const [totalAttacks, setTotalAttacks] = useState(0);
+  const [detectedCount, setDetectedCount] = useState(0);
+  const [detectionRate, setDetectionRate] = useState(94.2);
+  const [latencyMs, setLatencyMs] = useState(11.8);
+  const [roiAmount, setRoiAmount] = useState(0);
 
-  // Initialize WebSocket and poll defense metrics
+  // Initialize WebSocket and sync with backend
   useEffect(() => {
     streamClient.connect();
 
@@ -41,53 +41,63 @@ export default function Page() {
     });
 
     const unsubTx = streamClient.onTransaction((tx: Transaction) => {
-      setTotalAttacks((prev) => prev + 1);
-      if (tx.status === 'detected' || tx.status === 'blocked' || tx.blue_team_result?.is_fraud) {
-        setDetectedCount((prev) => {
-          const next = prev + 1;
-          setTotalAttacks((tot) => {
-            if (tot > 0) setDetectionRate(Number(((next / tot) * 100).toFixed(1)));
-            return tot;
-          });
-          return next;
+      // Only increment live metrics if simulation is actively running
+      setIsRunning((currentRunning) => {
+        if (!currentRunning) return currentRunning;
+
+        setTotalAttacks((prev) => {
+          const nextTotal = prev + 1;
+          if (tx.status === 'detected' || tx.status === 'blocked' || tx.blue_team_result?.is_fraud || tx.is_fraud) {
+            setDetectedCount((prevDet) => {
+              const nextDet = prevDet + 1;
+              setDetectionRate(Number(((nextDet / nextTotal) * 100).toFixed(1)));
+              return nextDet;
+            });
+            setRoiAmount((prevRoi) => prevRoi + (tx.amount > 0 ? Math.round(tx.amount * 120) : 450));
+          } else {
+            setDetectedCount((prevDet) => {
+              setDetectionRate(Number(((prevDet / nextTotal) * 100).toFixed(1)));
+              return prevDet;
+            });
+          }
+          return nextTotal;
         });
-        setRoiAmount((prev) => prev + (tx.amount > 0 ? Math.round(tx.amount * 120) : 450));
-      }
-      if (tx.blue_team_result?.latency_ms) {
-        setLatencyMs(Number(tx.blue_team_result.latency_ms.toFixed(1)));
-      }
+
+        if (tx.blue_team_result?.latency_ms) {
+          setLatencyMs(Number(tx.blue_team_result.latency_ms.toFixed(1)));
+        }
+
+        return currentRunning;
+      });
     });
 
-    // Check initial health and metrics from backend
+    // Check backend health & initial defense metrics
     const fetchInitialData = async () => {
       try {
         const health = await api.getHealth();
         if (health) {
           setIsConnected(true);
-          setIsRunning(health.simulation_running);
         }
         const defense = await api.getDefenseMetrics();
         if (defense && defense.total_predictions > 0) {
           setTotalAttacks(defense.total_predictions);
           const detected = defense.total_predictions - defense.total_false_negatives;
           setDetectedCount(Math.max(0, detected));
-          setDetectionRate(Number((defense.roi?.detection_rate || (detected / defense.total_predictions) * 100).toFixed(1)));
+          setDetectionRate(Number((defense.roi?.detection_rate ? defense.roi.detection_rate * 100 : (detected / defense.total_predictions) * 100).toFixed(1)));
           if (defense.roi?.cost_avoidance > 0) {
             setRoiAmount(Math.round(defense.roi.cost_avoidance));
           }
         }
       } catch (err) {
-        console.log('Backend polling initial state:', err);
+        console.log('Backend sync:', err);
       }
     };
 
     fetchInitialData();
-    const interval = setInterval(fetchInitialData, 8000);
 
     return () => {
       unsubStatus();
       unsubTx();
-      clearInterval(interval);
       streamClient.disconnect();
     };
   }, []);
@@ -99,11 +109,11 @@ export default function Page() {
         await api.stopSimulation();
         setIsRunning(false);
       } else {
-        await api.startSimulation({ num_victims: 500, fraud_ratio: 0.18, transaction_rate_tps: 12 });
+        await api.startSimulation({ num_victims: 500, fraud_ratio: 0.18, transaction_rate_tps: 8 });
         setIsRunning(true);
       }
     } catch (err) {
-      console.warn('Simulation toggle fallback to local simulation:', err);
+      console.warn('Simulation toggle fallback:', err);
       setIsRunning(!isRunning);
     } finally {
       setLoadingAction(false);
@@ -113,19 +123,34 @@ export default function Page() {
   const handleReset = async () => {
     setLoadingAction(true);
     try {
-      await api.startSimulation({ num_victims: 500, fraud_ratio: 0.15, transaction_rate_tps: 10 });
+      await api.stopSimulation();
+      setIsRunning(false);
       setTotalAttacks(0);
       setDetectedCount(0);
       setDetectionRate(0);
       setRoiAmount(0);
-      setIsRunning(true);
     } catch (e) {
+      setIsRunning(false);
       setTotalAttacks(0);
       setDetectedCount(0);
       setDetectionRate(0);
+      setRoiAmount(0);
     } finally {
       setLoadingAction(false);
     }
+  };
+
+  const handleManualAttackInjected = (injectedCount: number, detected: number, addedRoi: number) => {
+    setTotalAttacks((prev) => {
+      const nextTotal = prev + injectedCount;
+      setDetectedCount((prevDet) => {
+        const nextDet = prevDet + detected;
+        setDetectionRate(nextTotal > 0 ? Number(((nextDet / nextTotal) * 100).toFixed(1)) : 0);
+        return nextDet;
+      });
+      return nextTotal;
+    });
+    setRoiAmount((prev) => prev + addedRoi);
   };
 
   return (
@@ -152,7 +177,7 @@ export default function Page() {
         />
       </svg>
 
-      {/* Floating Nav Pill (Mastercard Design) */}
+      {/* Floating Nav Pill */}
       <header className="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-[1280px] px-4 sm:px-8">
         <div className="bg-white/95 backdrop-blur-md rounded-full shadow-[0_4px_24px_rgba(0,0,0,0.06)] border border-[rgba(20,20,19,0.06)] px-6 sm:px-8 py-3.5 flex items-center justify-between gap-4">
           
@@ -200,7 +225,7 @@ export default function Page() {
               onClick={handleReset}
               disabled={loadingAction}
               className="w-10 h-10 rounded-full border border-[var(--dust-taupe)] bg-white flex items-center justify-center hover:bg-[var(--canvas-cream)] transition-all active:scale-95 disabled:opacity-50"
-              title="Reset simulation"
+              title="Reset simulation counters"
               aria-label="Reset simulation"
             >
               <RotateCcw className={`w-4 h-4 text-[var(--ink-black)] ${loadingAction ? 'animate-spin' : ''}`} />
@@ -302,12 +327,13 @@ export default function Page() {
             isConnected={isConnected}
             onStart={() => setIsRunning(true)}
             onStop={() => setIsRunning(false)}
+            onAttackInjected={handleManualAttackInjected}
           />
 
         </div>
       </main>
 
-      {/* Mastercard Warm Editorial Dark Footer */}
+      {/* Warm Editorial Dark Footer */}
       <footer className="bg-[var(--ink-black)] text-white pt-16 pb-24 border-t border-black">
         <div className="container-main">
           <div className="flex flex-col md:flex-row md:items-start justify-between gap-12 mb-14">

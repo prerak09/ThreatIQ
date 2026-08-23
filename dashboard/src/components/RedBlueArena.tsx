@@ -84,13 +84,15 @@ export interface RedBlueArenaProps {
   isConnected?: boolean;
   onStart?: () => void;
   onStop?: () => void;
+  onAttackInjected?: (injectedCount: number, detected: number, addedRoi: number) => void;
 }
 
 export default function RedBlueArena({ 
   isRunning = false, 
   isConnected = false, 
   onStart, 
-  onStop 
+  onStop,
+  onAttackInjected,
 }: RedBlueArenaProps) {
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [selectedAttack, setSelectedAttack] = useState('multi_hop_cnp');
@@ -102,10 +104,12 @@ export default function RedBlueArena({
   // Subscribe to live transactions
   useEffect(() => {
     const unsub = streamClient.onTransaction((tx) => {
-      setTransactions((prev) => [tx, ...prev.slice(0, 30)]);
+      if (isRunning) {
+        setTransactions((prev) => [tx, ...prev.slice(0, 30)]);
+      }
     });
     return () => unsub();
-  }, []);
+  }, [isRunning]);
 
   const handleInjectAttack = async () => {
     setIsInjecting(true);
@@ -125,10 +129,24 @@ export default function RedBlueArena({
           blue_team_confidence: r.blue_team_confidence || 0.88,
           blue_team_result: r.blue_team_result,
         }));
+
+        let detected = 0;
+        let addedRoi = 0;
+        mapped.forEach((m) => {
+          if (m.status === 'detected' || m.status === 'blocked' || m.blue_team_result?.is_fraud) {
+            detected++;
+            addedRoi += Math.round(m.amount * 120);
+          }
+        });
+
+        if (onAttackInjected) {
+          onAttackInjected(mapped.length, detected, addedRoi);
+        }
+
         setTransactions((prev) => [...mapped, ...prev.slice(0, 30)]);
       }
     } catch (err) {
-      console.warn('Attack injection local simulation:', err);
+      console.warn('Attack injection fallback:', err);
       // Fallback local injection
       const mock: Transaction = {
         id: `TXN-${Date.now().toString(36).toUpperCase()}`,
@@ -142,6 +160,9 @@ export default function RedBlueArena({
         card_last4: '7721',
         blue_team_confidence: 0.87,
       };
+      if (onAttackInjected) {
+        onAttackInjected(1, mock.status === 'detected' ? 1 : 0, 1500);
+      }
       setTransactions((prev) => [mock, ...prev.slice(0, 30)]);
     } finally {
       setIsInjecting(false);
