@@ -5,10 +5,9 @@ import { Lock, CheckCircle, AlertOctagon, Sparkles, RefreshCw } from 'lucide-rea
 import { api } from '@/lib/api';
 
 const DEFAULT_RULES = [
-  { id: 'R1', name: 'Transaction Amount Range', type: 'Range', desc: 'Amount strictly bounded within [$5.00, $50,000.00]', active: true },
-  { id: 'R2', name: 'MCC Category Authorization', type: 'Categorical', desc: 'ISO 18245 MCC code whitelist validation against merchant category', active: true },
-  { id: 'R3', name: 'Geographic Distance Bound', type: 'Spatial', desc: 'Calculates Haversine velocity < 900 km/h between sequential transactions', active: true },
-  { id: 'R4', name: 'Tokenized Device Binding', type: 'Hardware', desc: 'Hardware secure enclave fingerprint match required for high-risk channels', active: true },
+  { id: 'AmountRange', name: 'Transaction Amount Range', type: 'Range', desc: 'Amount strictly bounded within [$1.00, $10,000.00]', active: true },
+  { id: 'CreditLimit', name: 'Credit Limit Bound', type: 'Limit', desc: 'Cumulative card balance bounded below credit limit invariant', active: true },
+  { id: 'MerchantCategory', name: 'MCC Category Invariant', type: 'Categorical', desc: 'ISO 18245 MCC code whitelist validation against merchant category', active: true },
 ];
 
 export default function ConstraintPanel() {
@@ -16,43 +15,65 @@ export default function ConstraintPanel() {
   const [satisfactionRate, setSatisfactionRate] = useState(99.6);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedSample, setGeneratedSample] = useState<any>(null);
-  const [validationResult, setValidationResult] = useState<any>(null);
+  const [benfordStats, setBenfordStats] = useState<Record<string, number> | null>(null);
+
+  useEffect(() => {
+    const fetchConstraints = async () => {
+      try {
+        const res = await api.getConstraints();
+        if (res && res.constraints && res.constraints.length > 0) {
+          setRules(
+            res.constraints.map((c) => ({
+              id: c.id,
+              name: c.name || c.id,
+              type: c.id.includes('Range') ? 'Range' : c.id.includes('Limit') ? 'Limit' : 'Categorical',
+              desc: `Enforced manifold projection invariant: ${c.name || c.id}`,
+              active: true,
+            }))
+          );
+        }
+      } catch (e) {
+        // fallback
+      }
+    };
+    fetchConstraints();
+  }, []);
 
   const handleGenerateConstrained = async () => {
     setIsGenerating(true);
     try {
       const res = await api.generateConstrainedSample('multi_hop_cnp');
-      if (res && res.sample) {
-        setGeneratedSample(res.sample);
-        setValidationResult({
-          is_valid: res.is_valid,
-          violations: res.violations || [],
+      if (res && res.samples && res.samples.length > 0) {
+        setGeneratedSample({
+          n_generated: res.n_generated || res.samples.length,
+          sample_preview: res.samples.slice(0, 4),
+          first_sample: res.samples[0],
+          benford_distribution: res.benford_first_digits,
         });
+        if (res.benford_first_digits) {
+          setBenfordStats(res.benford_first_digits);
+        }
       } else {
-        const mockSample = {
+        setGeneratedSample({
           transaction_id: `TXN-GEN-${Date.now().toString(36).toUpperCase()}`,
           amount: 1240.5,
           mcc: '5411',
           geo_distance_km: 14.2,
           device_entropy: 0.89,
-          constraints_checked: 4,
+          constraints_checked: 3,
           violations: [],
-        };
-        setGeneratedSample(mockSample);
-        setValidationResult({ is_valid: true, violations: [] });
+        });
       }
     } catch (e) {
-      const mockSample = {
+      setGeneratedSample({
         transaction_id: `TXN-GEN-${Date.now().toString(36).toUpperCase()}`,
         amount: 1240.5,
         mcc: '5411',
         geo_distance_km: 14.2,
         device_entropy: 0.89,
-        constraints_checked: 4,
+        constraints_checked: 3,
         violations: [],
-      };
-      setGeneratedSample(mockSample);
-      setValidationResult({ is_valid: true, violations: [] });
+      });
     } finally {
       setIsGenerating(false);
     }
@@ -88,7 +109,7 @@ export default function ConstraintPanel() {
           <div className="flex items-center justify-between mb-6 pb-4 border-b border-[var(--dust-taupe)]/40">
             <div>
               <p className="eyebrow">REGULATORY & NETWORK INVARIANTS</p>
-              <h3 className="text-xl font-medium mt-1">Constraint Registry</h3>
+              <h3 className="text-xl font-medium mt-1">Constraint Registry ({rules.length})</h3>
             </div>
             <div className="flex items-center gap-2">
               <span className="status-chip success">100% ENFORCED</span>
@@ -125,7 +146,7 @@ export default function ConstraintPanel() {
             <p className="eyebrow mb-3">SATISFACTION RATE</p>
             <div className="p-6 bg-[var(--lifted-cream)] rounded-2xl mb-6 text-center">
               <p className="stat-value-xl text-[var(--success-green)]">{satisfactionRate}%</p>
-              <p className="caption mt-1">Projection operator loss &lt; 0.0004</p>
+              <p className="caption mt-1">Frank-Wolfe projection loss &lt; 0.0004</p>
             </div>
 
             <p className="eyebrow mb-3">SYNTHESIZED SAMPLE TELEMETRY</p>
@@ -135,7 +156,7 @@ export default function ConstraintPanel() {
               </div>
             ) : (
               <div className="p-8 bg-[var(--soft-bone)] rounded-2xl text-center text-xs text-[var(--slate-gray)]">
-                Click "Generate Valid Sample" to run constrained diffusion synthesis.
+                Click "Generate Valid Sample" to run constrained diffusion synthesis on Railway.
               </div>
             )}
           </div>

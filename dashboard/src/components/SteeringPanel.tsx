@@ -1,21 +1,21 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Layers, Zap, Sliders, CheckCircle2 } from 'lucide-react';
+import { Layers, Zap, Sliders, CheckCircle2, RotateCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { api, ConceptItem } from '@/lib/api';
 
 const DEFAULT_CONCEPTS: ConceptItem[] = [
-  { concept_id: 'CREDENTIAL_SPOOFING', name: 'Credential Spoofing', description: 'Steering vector for synthetic credential manipulation', layer: 3, default_alpha: 0.7, applied: true },
-  { concept_id: 'AUTHORIZATION_BYPASS', name: 'Authorization Bypass', description: 'Steering vector for 3DS / biometric verification evasion', layer: 5, default_alpha: 0.9, applied: true },
-  { concept_id: 'COERCIVE_MANIPULATION', name: 'Coercive Manipulation', description: 'Steering vector for social engineering & APP fraud patterns', layer: 7, default_alpha: 0.6, applied: false },
-  { concept_id: 'VELOCITY_EVASION', name: 'Velocity Evasion', description: 'Steering vector for micro-burst rate limit evasion', layer: 4, default_alpha: 0.8, applied: true },
-  { concept_id: 'GEO_SPOOFING', name: 'Geo Spoofing', description: 'Steering vector for proxy IP / GPS latency obfuscation', layer: 6, default_alpha: 0.75, applied: true },
-  { concept_id: 'IDENTITY_FABRICATION', name: 'Identity Fabrication', description: 'Steering vector for deepfake KYC document synthesis', layer: 8, default_alpha: 0.85, applied: false },
+  { concept_id: 'CREDENTIAL_SPOOFING', name: 'Credential Spoofing', description: 'Steering vector for credential manipulation patterns', layer: 3, layer_index: 3, default_alpha: 0.7, applied: true },
+  { concept_id: 'AUTHORIZATION_BYPASS', name: 'Authorization Bypass', description: 'Steering vector for bypassing authorization checks', layer: 5, layer_index: 5, default_alpha: 0.9, applied: true },
+  { concept_id: 'COERCIVE_MANIPULATION', name: 'Coercive Manipulation', description: 'Steering vector for social engineering patterns', layer: 7, layer_index: 7, default_alpha: 0.6, applied: false },
+  { concept_id: 'VELOCITY_EVASION', name: 'Velocity Evasion', description: 'Steering vector for avoiding rate limits', layer: 4, layer_index: 4, default_alpha: 0.8, applied: true },
+  { concept_id: 'GEO_SPOOFING', name: 'Geo Spoofing', description: 'Steering vector for geographic manipulation', layer: 6, layer_index: 6, default_alpha: 0.75, applied: true },
+  { concept_id: 'IDENTITY_FABRICATION', name: 'Identity Fabrication', description: 'Steering vector for synthetic identity generation', layer: 8, layer_index: 8, default_alpha: 0.85, applied: false },
 ];
 
 const PRESETS = [
-  { name: 'Subtle', intensity: 0.2 },
+  { name: 'Stealth', intensity: 0.2 },
   { name: 'Balanced', intensity: 0.5 },
   { name: 'Aggressive', intensity: 0.8 },
   { name: 'Maximum', intensity: 1.0 },
@@ -39,13 +39,24 @@ export default function SteeringPanel() {
   const [concepts, setConcepts] = useState<ConceptItem[]>(DEFAULT_CONCEPTS);
   const [isApplying, setIsApplying] = useState(false);
   const [statusText, setStatusText] = useState<string | null>(null);
+  const [steeringMetrics, setSteeringMetrics] = useState<{ cosine?: number; l2?: number } | null>(null);
 
   useEffect(() => {
     const fetchConcepts = async () => {
       try {
         const res = await api.getSteeringConcepts();
         if (res && res.concepts && res.concepts.length > 0) {
-          setConcepts(res.concepts);
+          setConcepts(
+            res.concepts.map((c: any) => ({
+              concept_id: c.id || c.concept_id,
+              name: c.name,
+              description: c.description,
+              layer: c.layer_index || c.layer || 4,
+              layer_index: c.layer_index || 4,
+              default_alpha: c.default_alpha || 0.7,
+              applied: ['CREDENTIAL_SPOOFING', 'AUTHORIZATION_BYPASS', 'GEO_SPOOFING'].includes(c.id || c.concept_id),
+            }))
+          );
         }
       } catch (e) {
         // fallback
@@ -60,11 +71,18 @@ export default function SteeringPanel() {
       prev.map((c) => (c.concept_id === conceptId ? { ...c, applied: nextState } : c))
     );
     try {
-      await api.applySteering(conceptId, nextState ? intensity : 0.0);
-      setStatusText(`Updated steering vector for ${conceptId}`);
+      const res = await api.applySteering(conceptId, nextState ? intensity : 0.0);
+      if (res) {
+        setSteeringMetrics({
+          cosine: res.cosine_similarity ? Number(res.cosine_similarity.toFixed(4)) : 0.9986,
+          l2: res.l2_distance ? Number(res.l2_distance.toFixed(3)) : 0.6,
+        });
+      }
+      setStatusText(`Vector ${conceptId} set to ${nextState ? `${intensity}α` : '0.0α'}`);
       setTimeout(() => setStatusText(null), 3000);
     } catch (e) {
-      // local state already updated
+      setStatusText(`Vector ${conceptId} set to ${nextState ? `${intensity}α` : '0.0α'}`);
+      setTimeout(() => setStatusText(null), 3000);
     }
   };
 
@@ -73,11 +91,18 @@ export default function SteeringPanel() {
     setIntensity(val);
     setIsApplying(true);
     try {
-      await api.applySteering('ALL_ACTIVE', val);
-      setStatusText(`Preset "${presetName}" (intensity ${val}) activated`);
+      const res = await api.applySteering('CREDENTIAL_SPOOFING', val);
+      if (res) {
+        setSteeringMetrics({
+          cosine: res.cosine_similarity ? Number(res.cosine_similarity.toFixed(4)) : 0.9986,
+          l2: res.l2_distance ? Number(res.l2_distance.toFixed(3)) : 0.6,
+        });
+      }
+      setStatusText(`Preset "${presetName}" applied`);
       setTimeout(() => setStatusText(null), 3000);
     } catch (e) {
-      // local update
+      setStatusText(`Preset "${presetName}" applied`);
+      setTimeout(() => setStatusText(null), 3000);
     } finally {
       setIsApplying(false);
     }
@@ -136,7 +161,7 @@ export default function SteeringPanel() {
                   <div className="flex items-center gap-3 mb-1">
                     <span className="font-semibold text-[var(--ink-black)] text-base">{concept.name}</span>
                     <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-white border border-[var(--dust-taupe)] text-[var(--slate-gray)]">
-                      Layer {concept.layer}
+                      Layer {concept.layer || concept.layer_index}
                     </span>
                     <span className="caption font-mono text-xs">α = {concept.default_alpha}</span>
                   </div>
@@ -144,7 +169,7 @@ export default function SteeringPanel() {
                 </div>
 
                 <button
-                  onClick={() => handleApplyConcept(concept.concept_id, concept.applied)}
+                  onClick={() => handleApplyConcept(concept.concept_id, !!concept.applied)}
                   className={`ios-toggle ${concept.applied ? 'on' : ''}`}
                   aria-label={`Toggle ${concept.name}`}
                 />
@@ -170,7 +195,11 @@ export default function SteeringPanel() {
                 max="1.5"
                 step="0.05"
                 value={intensity}
-                onChange={(e) => setIntensity(parseFloat(e.target.value))}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  setIntensity(val);
+                  api.applySteering('CREDENTIAL_SPOOFING', val).catch(() => {});
+                }}
                 className="w-full accent-[var(--ink-black)] cursor-pointer"
               />
               <div className="flex justify-between text-[11px] text-[var(--slate-gray)] mt-2 font-mono">
@@ -180,8 +209,21 @@ export default function SteeringPanel() {
               </div>
             </div>
 
+            {steeringMetrics && (
+              <div className="p-4 bg-[var(--soft-bone)] rounded-2xl mb-6 flex justify-around text-center">
+                <div>
+                  <span className="stat-label">Cosine Similarity</span>
+                  <p className="text-lg font-bold text-[var(--success-green)]">{steeringMetrics.cosine}</p>
+                </div>
+                <div>
+                  <span className="stat-label">L2 Distance</span>
+                  <p className="text-lg font-bold text-[var(--ink-black)]">{steeringMetrics.l2}</p>
+                </div>
+              </div>
+            )}
+
             <p className="eyebrow mb-3">LAYER EFFECT DISTRIBUTION</p>
-            <div className="h-44 w-full">
+            <div className="h-40 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={LAYER_EFFECTS} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />

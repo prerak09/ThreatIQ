@@ -1,6 +1,6 @@
 /**
  * ThreatIQ Centralized API Client
- * Connects to Railway FastAPI Backend
+ * Connects Frontend directly to Railway FastAPI Backend
  */
 
 export const API_BASE_URL =
@@ -8,52 +8,43 @@ export const API_BASE_URL =
 
 export const WS_BASE_URL =
   process.env.NEXT_PUBLIC_WS_URL ||
-  API_BASE_URL.replace(/^http/, 'ws');
+  (API_BASE_URL.startsWith('https://')
+    ? API_BASE_URL.replace('https://', 'wss://')
+    : API_BASE_URL.replace('http://', 'ws://'));
 
-async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T> {
+async function fetchJson<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
-  try {
-    const res = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options?.headers || {}),
-      },
-    });
+  const defaultHeaders = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
 
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`API error ${res.status}: ${errorText || res.statusText}`);
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...defaultHeaders,
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    let errorDetail = `HTTP ${response.status} ${response.statusText}`;
+    try {
+      const err = await response.json();
+      errorDetail = err.detail || err.message || errorDetail;
+    } catch {
+      // ignore
     }
-
-    return (await res.json()) as T;
-  } catch (error) {
-    console.warn(`Fetch error for ${endpoint}:`, error);
-    throw error;
+    throw new Error(errorDetail);
   }
-}
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+  return response.json() as Promise<T>;
+}
 
 export interface HealthResponse {
   status: string;
-  simulation_running: boolean;
-  model_trained: boolean;
-  marl_orchestrator: boolean;
-  sar_queue_size: number;
-  active_learning_active: boolean;
-  threat_intel_active: boolean;
-  conformal_detector: boolean;
-  conformal_calibrated: boolean;
-  steering_engine: boolean;
-  constraints_active: boolean;
-  federated_learning: boolean;
-  game_solver: boolean;
-  zkp_system: boolean;
-  temporal_gnn: boolean;
   timestamp: string;
+  components: Record<string, boolean>;
 }
 
 export interface SimulationStartRequest {
@@ -98,7 +89,7 @@ export interface Transaction {
   attack_type?: string;
   attack_vector?: string;
   status: 'detected' | 'blocked' | 'missed' | 'approved' | 'flagged';
-  timestamp: number | string;
+  timestamp?: string | number;
   is_fraud?: boolean;
   card_last4?: string;
   merchant_id?: string;
@@ -107,26 +98,32 @@ export interface Transaction {
     is_fraud: boolean;
     confidence: number;
     latency_ms: number;
-    engine_scores?: Record<string, number>;
+    engine_scores?: {
+      xgboost?: number;
+      lightgbm?: number;
+      iforest?: number;
+      xgb?: number;
+      lgb?: number;
+    };
   };
-  merchant_result?: {
-    status: string;
-    response_code?: string;
-  };
+  merchant_result?: any;
 }
 
 export interface MARLAgent {
   agent_id: string;
-  name: string;
-  rank: number;
-  evasion_rate: number;
-  delta_this_epoch: number;
-  episodes_evaluated: number;
-  quote: string;
-  strategy: string;
-  history: number[];
-  min_evasion: number;
-  max_evasion: number;
+  name?: string;
+  role?: string;
+  attack_type?: string;
+  reward?: number;
+  current_epsilon?: number;
+  strategy?: any;
+  rank?: number;
+  evasion_rate?: number;
+  episodes_evaluated?: number;
+  quote?: string;
+  history?: number[];
+  min_evasion?: number;
+  max_evasion?: number;
   action_distribution?: Record<string, number>;
 }
 
@@ -151,18 +148,20 @@ export interface SARItem {
 
 export interface ConceptItem {
   concept_id: string;
+  id?: string;
   name: string;
   description: string;
-  layer: number;
+  layer?: number;
+  layer_index?: number;
   default_alpha: number;
-  applied: boolean;
+  applied?: boolean;
 }
 
 export interface PresetItem {
   name: string;
-  intensity: number;
   concepts: string[];
   alphas: number[];
+  layers?: number[];
 }
 
 export interface BankStatus {
@@ -173,30 +172,40 @@ export interface BankStatus {
   local_accuracy: number;
   contribution_weight: number;
   latency_ms: number;
-  is_training?: boolean;
+}
+
+export interface GameEquilibriumResponse {
+  equilibrium_type: string;
+  leader_role: string;
+  follower_role: string;
+  leader_payoff: number;
+  blue_mix: number[];
+  red_mix?: number[];
+  best_blue_strategy?: number;
+  best_red_strategy?: number;
+  payoff_matrix?: {
+    blue_payoffs: number[][];
+    red_payoffs: number[][];
+    shape?: number[];
+  };
+  iterations_run?: number;
+  converged?: boolean;
 }
 
 export interface ZKPProveResponse {
   proof_id: string;
-  tx_id: string;
-  verification_key_hash: string;
-  generation_time_ms: number;
-  is_valid: boolean;
-  proof_size_bytes: number;
+  tx_id?: string;
+  transaction_id?: string;
+  proof_type?: string;
+  circuit?: string;
+  proving_time_ms?: number;
+  generation_time_ms?: number;
+  proof_size_bytes?: number;
+  verification_key_hash?: string;
+  is_valid?: boolean;
+  public_signals?: any;
+  self_verification?: boolean;
 }
-
-export interface GameEquilibriumResponse {
-  blue_strategy: string;
-  red_strategy: string;
-  blue_payoff: number;
-  red_payoff: number;
-  iterations: number;
-  converged: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// API Object
-// ---------------------------------------------------------------------------
 
 export const api = {
   // Health
@@ -206,7 +215,7 @@ export const api = {
   startSimulation: (req?: SimulationStartRequest) =>
     fetchJson<{ message: string; tps: number; fraud_ratio: number }>('/api/simulation/start', {
       method: 'POST',
-      body: JSON.stringify(req || { num_victims: 500, fraud_ratio: 0.18, transaction_rate_tps: 12.0 }),
+      body: JSON.stringify(req || { num_victims: 500, fraud_ratio: 0.18, transaction_rate_tps: 8.0 }),
     }),
 
   stopSimulation: () =>
@@ -219,7 +228,7 @@ export const api = {
 
   // Attack Injection & Taxonomy
   injectAttack: (attack_type: string, count: number = 5) =>
-    fetchJson<{ injected_count: number; attack_type: string; results: any[] }>('/api/attack/inject', {
+    fetchJson<{ injected: number; attack_type: string; results: any[] }>('/api/attack/inject', {
       method: 'POST',
       body: JSON.stringify({ attack_type, count }),
     }),
@@ -249,80 +258,74 @@ export const api = {
   getConformalStats: () => fetchJson<any>('/api/conformal/stats'),
 
   // Topology & Graph
-  getTopologyGraph: () => fetchJson<any>('/api/topology/graph'),
-  getFraudRings: () => fetchJson<any>('/api/topology/rings'),
+  getTopologyGraph: () => fetchJson<{ nodes: any[]; edges: any[]; metrics: any }>('/api/topology/graph'),
+  getFraudRings: () => fetchJson<{ rings: any[]; total_rings: number; total_nodes: number }>('/api/topology/rings'),
 
   // MARL Multi-Agent Reinforcement Learning
-  getMARLAgents: () => fetchJson<{ total_agents: number; agents: any[] }>('/api/marl/agents'),
+  getMARLAgents: () => fetchJson<{ agents: any[]; global_step: number }>('/api/marl/agents'),
   evolveMARL: () =>
-    fetchJson<{ message: string; active_attacks: string[]; total_agents: number; iteration: number }>('/api/marl/evolve', {
+    fetchJson<{ evolved: boolean; epochs_run: number; history: any[] }>('/api/marl/evolve', {
       method: 'POST',
     }),
-  getMARLHistory: () => fetchJson<any>('/api/marl/history'),
 
-  // Steering
-  getSteeringConcepts: () => fetchJson<{ concepts: ConceptItem[] }>('/api/steering/concepts'),
-  applySteering: (concept_id: string, intensity: number = 0.5) =>
-    fetchJson<{ message: string; concept_id: string; intensity: number; is_active: boolean }>('/api/steering/apply', {
+  // Activation Steering
+  getSteeringConcepts: () => fetchJson<{ concepts: any[]; total: number }>('/api/steering/concepts'),
+  getSteeringPresets: () => fetchJson<{ presets: PresetItem[] }>('/api/steering/presets'),
+  applySteering: (concept_id: string, alpha: number = 0.7) =>
+    fetchJson<any>('/api/steering/apply', {
       method: 'POST',
-      body: JSON.stringify({ concept_id, intensity }),
+      body: JSON.stringify({ concept_id, alpha }),
     }),
-  getSteeringPresets: () => fetchJson<{ presets: Record<string, PresetItem> }>('/api/steering/presets'),
 
-  // Constraints
-  getConstraintsList: () => fetchJson<{ total_constraints: number; constraints: any[] }>('/api/constraints/list'),
-  validateConstraints: (transaction: Record<string, any>) =>
-    fetchJson<{ is_valid: boolean; violations: string[]; count: number }>('/api/constraints/validate', {
+  // Constrained Diffusion
+  getConstraints: () => fetchJson<{ constraints: any[]; total: number }>('/api/constraints/list'),
+  validateConstraints: (features: Record<string, any>) =>
+    fetchJson<any>('/api/constraints/validate', {
       method: 'POST',
-      body: JSON.stringify(transaction),
+      body: JSON.stringify({ features }),
     }),
   generateConstrainedSample: (attack_type: string = 'multi_hop_cnp') =>
-    fetchJson<{ is_valid: boolean; violations: string[]; sample: any }>('/api/constraints/generate', {
+    fetchJson<{ n_generated: number; samples: any[]; benford_first_digits: any }>('/api/constraints/generate', {
       method: 'POST',
       body: JSON.stringify({ attack_type }),
     }),
 
   // Federated Learning
   getFederatedStatus: () => fetchJson<any>('/api/federated/status'),
+  getFederatedBanks: () => fetchJson<{ banks: any[]; total_samples: number }>('/api/federated/banks'),
   runFederatedRound: () =>
-    fetchJson<{ round: number; global_accuracy: number; participating_banks: number; epsilon_used: number }>('/api/federated/round', {
+    fetchJson<any>('/api/federated/round', {
       method: 'POST',
     }),
-  getFederatedPrivacy: () => fetchJson<any>('/api/federated/privacy'),
-  getFederatedBanks: () => fetchJson<{ total_banks: number; banks: BankStatus[] }>('/api/federated/banks'),
 
   // Game Theory
   getGameEquilibrium: () => fetchJson<GameEquilibriumResponse>('/api/game/equilibrium'),
-  solveGame: (iterations: number = 100, learning_rate: number = 0.01) =>
-    fetchJson<{ message: string; iterations: number; blue_strategy: string; red_strategy: string; blue_payoff: number; red_payoff: number; converged: boolean }>('/api/game/solve', {
+  solveGame: (iterations: number = 100, lr: number = 0.01) =>
+    fetchJson<any>('/api/game/solve', {
       method: 'POST',
-      body: JSON.stringify({ iterations, learning_rate }),
+      body: JSON.stringify({ iterations, lr }),
     }),
-  getGameConvergence: () => fetchJson<{ iterations: number; history: any[] }>('/api/game/convergence'),
 
-  // ZKP Verification
-  generateZKPProof: (tx_id: string, risk_score: number = 0.15) =>
+  // Zero-Knowledge Proofs
+  generateZKPProof: (tx_id: string = 'TXN-001', amount: number = 150.0, score: number = 0.12) =>
     fetchJson<ZKPProveResponse>('/api/zkp/prove', {
       method: 'POST',
-      body: JSON.stringify({ tx_id, risk_score }),
+      body: JSON.stringify({ tx_id, amount, score }),
     }),
   verifyZKPProof: (proof_id: string) =>
-    fetchJson<{ is_valid: boolean; verified_at: string }>('/api/zkp/verify', {
+    fetchJson<any>(`/api/zkp/verify?proof_id=${encodeURIComponent(proof_id)}`, {
       method: 'POST',
-      body: JSON.stringify({ proof_id }),
     }),
   getZKPCertificate: () => fetchJson<any>('/api/zkp/certificate'),
-  getZKPStats: () => fetchJson<any>('/api/zkp/stats'),
 
-  // SAR (Suspicious Activity Reports)
-  getPendingSARs: () => fetchJson<{ total_pending: number; sars: any[] }>('/api/sar/pending'),
+  // Suspicious Activity Reports
+  getPendingSARs: () => fetchJson<any>('/api/sar/pending'),
   generateSAR: (transaction_id?: string) =>
-    fetchJson<{ message: string; sar: any }>('/api/sar/generate', {
+    fetchJson<any>(`/api/sar/generate${transaction_id ? `?transaction_id=${encodeURIComponent(transaction_id)}` : ''}`, {
       method: 'POST',
-      body: JSON.stringify({ transaction_id: transaction_id || `TXN-SAR-${Date.now()}` }),
     }),
   fileSAR: (sar_id: string) =>
-    fetchJson<{ message: string; sar_id: string; filed_at: string }>(`/api/sar/${encodeURIComponent(sar_id)}/file`, {
+    fetchJson<any>(`/api/sar/${encodeURIComponent(sar_id)}/file`, {
       method: 'POST',
     }),
 };
