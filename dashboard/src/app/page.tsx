@@ -157,14 +157,12 @@ export default function Page() {
         <div className="bg-white/95 backdrop-blur-md rounded-full shadow-[0_4px_24px_rgba(0,0,0,0.06)] border border-[rgba(20,20,19,0.06)] px-6 sm:px-8 py-3.5 flex items-center justify-between gap-4">
           
           {/* ThreatIQ Logo */}
-          <div className="flex items-center gap-3 flex-shrink-0 cursor-pointer" onClick={() => setActiveTab('arena')}>
-            <div className="relative w-8 h-8 rounded-full overflow-hidden flex items-center justify-center shadow-sm bg-[#F3F0EE] border border-black/5">
-              <img 
-                src="/threatiq-logo.png" 
-                alt="ThreatIQ Emblem" 
-                className="w-12 h-12 max-w-none object-cover object-[center_30%]" 
-              />
-            </div>
+          <div className="flex items-center gap-2.5 flex-shrink-0 cursor-pointer" onClick={() => setActiveTab('arena')}>
+            <img 
+              src="/threatiq-logo.png" 
+              alt="ThreatIQ Logo" 
+              className="w-8 h-8 object-contain transition-transform hover:scale-105" 
+            />
             <span className="text-[var(--ink-black)] font-medium text-lg tracking-tight">ThreatIQ</span>
           </div>
 
@@ -315,13 +313,11 @@ export default function Page() {
           <div className="flex flex-col md:flex-row md:items-start justify-between gap-12 mb-14">
             <div>
               <div className="flex items-center gap-3 mb-4">
-                <div className="relative w-8 h-8 rounded-full overflow-hidden flex items-center justify-center shadow-sm bg-white">
-                  <img 
-                    src="/threatiq-logo.png" 
-                    alt="ThreatIQ Logo" 
-                    className="w-12 h-12 max-w-none object-cover object-[center_30%]" 
-                  />
-                </div>
+                <img 
+                  src="/threatiq-logo.png" 
+                  alt="ThreatIQ Logo" 
+                  className="w-9 h-9 object-contain" 
+                />
                 <span className="text-xl font-medium tracking-tight">ThreatIQ</span>
               </div>
               <h2 className="text-white text-2xl font-medium max-w-md leading-snug">

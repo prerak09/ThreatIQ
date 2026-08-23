@@ -13,6 +13,10 @@ export const metadata: Metadata = {
   title: 'ThreatIQ — Autonomous Adversarial AI Platform',
   description:
     'Autonomous Adversarial Simulation Platform — Enterprise AI Red Team / Blue Team Payment Fraud Simulation inspired by Mastercard Design System',
+  icons: {
+    icon: '/threatiq-logo.png',
+    apple: '/threatiq-logo.png',
+  },
 };
 
 export default function RootLayout({
