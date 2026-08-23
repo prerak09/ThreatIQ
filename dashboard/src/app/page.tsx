@@ -8,6 +8,7 @@ import { api, Transaction } from '@/lib/api';
 import { streamClient } from '@/lib/websocket';
 
 const NAV_TABS: Array<{ id: TabId; label: string }> = [
+  { id: 'overview', label: 'Overview' },
   { id: 'arena', label: 'Arena' },
   { id: 'topology', label: 'Topology' },
   { id: 'xai', label: 'XAI' },
@@ -78,7 +79,7 @@ const INITIAL_TRANSACTIONS: Transaction[] = [
 ];
 
 export default function Page() {
-  const [activeTab, setActiveTab] = useState<TabId>('arena');
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [isRunning, setIsRunning] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [loadingAction, setLoadingAction] = useState(false);
@@ -91,7 +92,7 @@ export default function Page() {
   const [latencyMs, setLatencyMs] = useState(11.8);
   const [roiAmount, setRoiAmount] = useState(0);
 
-  // Centralized Transactions List shared across Arena, XAI, SAR, and Topology
+  // Centralized Transactions List shared across all modules
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
 
   // Initialize WebSocket and sync with backend
@@ -106,13 +107,26 @@ export default function Page() {
       setIsRunning((currentRunning) => {
         if (!currentRunning) return currentRunning;
 
-        setTransactions((prev) => [tx, ...prev.slice(0, 40)]);
+        // Correctly classify attack vs legitimate stream traffic
+        const isExplicitAttack: boolean = Boolean(
+          (tx as any).type === 'attack' || 
+          tx.is_fraud === true || 
+          (tx.attack_vector && tx.attack_vector !== 'legitimate' && tx.attack_vector !== 'unknown') ||
+          (tx.attack_type && tx.attack_type !== 'Normal Payment' && tx.attack_type !== 'unknown' && tx.attack_type !== 'legitimate')
+        );
+
+        const normalizedTx: Transaction = {
+          ...tx,
+          is_fraud: isExplicitAttack,
+          attack_type: isExplicitAttack ? (tx.attack_type || tx.attack_vector || 'Multi-Hop CNP') : 'Normal Payment',
+          status: isExplicitAttack ? (tx.status || 'detected') : 'approved',
+        };
+
+        setTransactions((prev) => [normalizedTx, ...prev.slice(0, 40)]);
         setTotalProcessed((prev) => prev + 1);
 
-        const isAttack = tx.is_fraud || (tx.attack_type && tx.attack_type !== 'Normal Payment');
-        const isDetected = tx.status === 'detected' || tx.status === 'blocked' || tx.blue_team_result?.is_fraud;
-
-        if (isAttack) {
+        if (isExplicitAttack) {
+          const isDetected = normalizedTx.status === 'detected' || normalizedTx.status === 'blocked' || tx.blue_team_result?.is_fraud !== false;
           setTotalAttacks((prevAttacks) => {
             const nextAttacks = prevAttacks + 1;
             if (isDetected) {
@@ -121,7 +135,7 @@ export default function Page() {
                 setDetectionRate(Number(((nextDet / nextAttacks) * 100).toFixed(1)));
                 return nextDet;
               });
-              setRoiAmount((prevRoi) => prevRoi + (tx.amount > 0 ? Math.round(tx.amount * 120) : 4500));
+              setRoiAmount((prevRoi) => prevRoi + (normalizedTx.amount > 0 ? Math.round(normalizedTx.amount * 120) : 4500));
             } else {
               setDetectedCount((prevDet) => {
                 setDetectionRate(Number(((prevDet / nextAttacks) * 100).toFixed(1)));
@@ -240,7 +254,7 @@ export default function Page() {
   return (
     <div className="min-h-screen relative overflow-x-hidden">
       {/* Ghost Watermark */}
-      <div className="ghost-watermark top-24 -right-16 text-[180px] select-none opacity-60">ARENA</div>
+      <div className="ghost-watermark top-24 -right-16 text-[180px] select-none opacity-60">PULSE</div>
 
       {/* Decorative SVG Orbital Arcs */}
       <svg className="fixed inset-0 w-full h-full pointer-events-none z-0" xmlns="http://www.w3.org/2000/svg">
@@ -274,7 +288,7 @@ export default function Page() {
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
             className="flex items-center gap-2.5 flex-shrink-0 cursor-pointer select-none" 
-            onClick={() => setActiveTab('arena')}
+            onClick={() => setActiveTab('overview')}
           >
             <img 
               src="/threatiq-logo.png" 
@@ -488,6 +502,11 @@ export default function Page() {
             isConnected={isConnected}
             onStart={() => setIsRunning(true)}
             onStop={() => setIsRunning(false)}
+            totalProcessed={totalProcessed}
+            totalAttacks={totalAttacks}
+            detectedCount={detectedCount}
+            detectionRate={detectionRate}
+            roiAmount={roiAmount}
             transactions={transactions}
             onAttackInjected={handleManualAttackInjected}
           />
@@ -517,6 +536,7 @@ export default function Page() {
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-[var(--slate-gray)] mb-4">PLATFORM</p>
                 <ul className="space-y-2.5 text-gray-300">
+                  <li><button onClick={() => setActiveTab('overview')} className="hover:text-white transition-colors">Overview</button></li>
                   <li><button onClick={() => setActiveTab('arena')} className="hover:text-white transition-colors">Adversarial Arena</button></li>
                   <li><button onClick={() => setActiveTab('topology')} className="hover:text-white transition-colors">Graph Topology</button></li>
                   <li><button onClick={() => setActiveTab('marl')} className="hover:text-white transition-colors">MARL Evasion</button></li>

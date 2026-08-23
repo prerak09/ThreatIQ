@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
+  LayoutDashboard,
   Shield, 
   Network, 
   Search, 
@@ -14,6 +15,7 @@ import {
   Key, 
   FileText 
 } from 'lucide-react';
+import OverviewPanel from './OverviewPanel';
 import RedBlueArena from './RedBlueArena';
 import TopologyGraph from './TopologyGraph';
 import ExplainabilityPanel from './ExplainabilityPanel';
@@ -27,6 +29,7 @@ import SARPanel from './SARPanel';
 import { Transaction } from '@/lib/api';
 
 export const TABS = [
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'arena', label: 'Adversarial Arena', icon: Shield },
   { id: 'topology', label: 'Topology Graph', icon: Network },
   { id: 'marl', label: 'MARL Adversaries', icon: Bot },
@@ -48,6 +51,11 @@ interface ArenaDashboardProps {
   isConnected: boolean;
   onStart: () => void;
   onStop: () => void;
+  totalProcessed?: number;
+  totalAttacks?: number;
+  detectedCount?: number;
+  detectionRate?: number;
+  roiAmount?: number;
   transactions?: Transaction[];
   onAttackInjected?: (injectedCount: number, detected: number, addedRoi: number, newTxs?: Transaction[]) => void;
 }
@@ -59,6 +67,11 @@ export default function ArenaDashboard({
   isConnected, 
   onStart, 
   onStop,
+  totalProcessed = 0,
+  totalAttacks = 0,
+  detectedCount = 0,
+  detectionRate = 96.4,
+  roiAmount = 0,
   transactions = [],
   onAttackInjected,
 }: ArenaDashboardProps) {
@@ -125,6 +138,21 @@ export default function ArenaDashboard({
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
           >
+            {activeTab === 'overview' && (
+              <OverviewPanel
+                onSelectTab={onSelectTab}
+                isRunning={isRunning}
+                isConnected={isConnected}
+                totalProcessed={totalProcessed}
+                totalAttacks={totalAttacks}
+                detectedCount={detectedCount}
+                detectionRate={detectionRate}
+                roiAmount={roiAmount}
+                transactions={transactions}
+                onStartSimulation={onStart}
+                onStopSimulation={onStop}
+              />
+            )}
             {activeTab === 'arena' && (
               <RedBlueArena 
                 isRunning={isRunning} 
