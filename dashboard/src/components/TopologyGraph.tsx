@@ -1,10 +1,10 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Search, ZoomIn, ZoomOut, Target, ExternalLink } from 'lucide-react';
-import { ReactFlow, Background, Controls, MiniMap, Node, Edge, addEdge, Connection, NodeProps, EdgeProps, XYPosition, OnNodesChange, OnEdgesChange, OnConnect, applyNodeChanges, applyEdgeChanges, getConnectedEdges } from 'reactflow';
+import { ReactFlow, Background, Controls, MiniMap, Node, Edge, addEdge, Connection, NodeProps, EdgeProps, XYPosition, OnNodesChange, OnEdgesChange, OnConnect, applyNodeChanges, applyEdgeChanges, getConnectedEdges } from '@xyflow/react';
 
-import 'reactflow/dist/style.css';
+import '@xyflow/react/dist/style.css';
 
 interface GraphNode {
   id: string;
@@ -67,11 +67,12 @@ function getRingWidth(risk: number): number {
   return 2 + risk * 3;
 }
 
-function GraphNodeComponent({ data }: NodeProps<GraphNode>) {
-  const { id, type, label, risk, data: nodeData } = data;
-  const riskColor = getRiskColor(risk);
-  const ringWidth = getRingWidth(risk);
-  const isHighRisk = risk > 0.7;
+function GraphNodeComponent(props: any) {
+  const { data } = props;
+  const { id, type, label, risk, data: nodeData } = data || {};
+  const riskColor = getRiskColor(risk || 0);
+  const ringWidth = getRingWidth(risk || 0);
+  const isHighRisk = (risk || 0) > 0.7;
 
   return (
     <div className="relative group">
@@ -100,7 +101,7 @@ function GraphNodeComponent({ data }: NodeProps<GraphNode>) {
           <span className="text-3xl">{NODE_ICONS[type] || '❓'}</span>
           {isHighRisk && (
             <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-[var(--danger-red)] flex items-center justify-center">
-              <span className="text-white text-xs font-bold">{Math.round(risk * 100)}%</span>
+              <span className="text-white text-xs font-bold">{Math.round((risk || 0) * 100)}%</span>
             </div>
           )}
         </div>
@@ -119,8 +120,8 @@ function GraphNodeComponent({ data }: NodeProps<GraphNode>) {
   );
 }
 
-function GraphEdgeComponent({ edge }: EdgeProps<GraphEdge>) {
-  const isFraud = edge.data?.isFraud;
+function GraphEdgeComponent(props: any) {
+  const isFraud = props.data?.isFraud;
   return (
     <path
       stroke={isFraud ? '#F37338' : 'var(--dust-taupe)'}
@@ -131,28 +132,32 @@ function GraphEdgeComponent({ edge }: EdgeProps<GraphEdge>) {
         filter: isFraud ? 'drop-shadow(0 0 4px #F37338)' : 'none',
         animation: isFraud ? 'dash 1s linear infinite' : 'none',
       }}
-      d={edge.path || ''}
+      d={props.path || ''}
     />
   );
 }
 
 const TIME_RANGES = ['1H', '6H', '24H', '7D'] as const;
+type TimeRange = (typeof TIME_RANGES)[number];
+
+const nodeTypes = { graphNode: GraphNodeComponent };
+const edgeTypes = { graphEdge: GraphEdgeComponent };
 
 export default function TopologyGraph() {
-  const [nodes, setNodes] = useState(MOCK_NODES);
-  const [edges, setEdges] = useState(MOCK_EDGES);
+  const [nodes, setNodes] = useState<any[]>(MOCK_NODES);
+  const [edges, setEdges] = useState<any[]>(MOCK_EDGES);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
-  const [timeRange, setTimeRange] = useState<TIME_RANGES[number]>('24H');
+  const [timeRange, setTimeRange] = useState<TimeRange>('24H');
   const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
 
   const onNodesChange = useCallback((changes: any) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
   const onEdgesChange = useCallback((changes: any) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
   const onConnect = useCallback((params: Connection) => setEdges((eds) => addEdge(params, eds)), []);
-  const onNodeClick = useCallback((_: any, node: Node<GraphNode>) => setSelectedNode(node.data), []);
+  const onNodeClick = useCallback((_: any, node: any) => setSelectedNode(node.data), []);
   const onPaneClick = useCallback(() => setSelectedNode(null), []);
 
-  const onZoom = useCallback((_, v: any) => setViewport(v), []);
-  const onMove = useCallback((_, v: any) => setViewport(v), []);
+  const onZoom = useCallback((_e: any, v: any) => setViewport(v), []);
+  const onMove = useCallback((_e: any, v: any) => setViewport(v), []);
 
   return (
     <div className="card-stadium p-8 relative overflow-hidden">
@@ -192,12 +197,8 @@ export default function TopologyGraph() {
           viewport={viewport}
           fitView={false}
           attributionPosition="bottom-right"
-          nodeTypes={{
-            graphNode: GraphNodeComponent,
-          }}
-          edgeTypes={{
-            graphEdge: GraphEdgeComponent,
-          }}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
         >
           <Background 
             color="var(--dust-taupe)" 
@@ -211,7 +212,7 @@ export default function TopologyGraph() {
             showInteractive={true}
           />
           <MiniMap 
-            nodeColor={(node) => getRiskColor(node.data.risk)} 
+            nodeColor={(node: any) => getRiskColor(node.data?.risk || 0)} 
             maskColor="rgba(20,20,19,0.1)" 
           />
         </ReactFlow>
@@ -220,7 +221,7 @@ export default function TopologyGraph() {
         <div className="absolute bottom-4 left-4 bg-[var(--lifted-cream)] rounded-[20px] p-4 shadow-level-1 flex items-center gap-4 text-sm">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-full border-2 border-[#2E7D32] flex items-center justify-center bg-white" />
-            <span className="text-[var(--slate-gray)]">Low Risk (<0.3)</span>
+            <span className="text-[var(--slate-gray)]">Low Risk (&lt; 0.3)</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-full border-2 border-[#9A3A0A] flex items-center justify-center bg-white" />
@@ -228,7 +229,7 @@ export default function TopologyGraph() {
           </div>
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-full border-2 border-[#B3261E] flex items-center justify-center bg-white" />
-            <span className="text-[var(--slate-gray)]">High Risk (>0.7)</span>
+            <span className="text-[var(--slate-gray)]">High Risk (&gt; 0.7)</span>
           </div>
           <div className="flex items-center gap-2 ml-4 border-l border-[var(--dust-taupe)] pl-4">
             <div className="w-6 h-1 rounded-full bg-[#F37338] border-t-2 border-dashed" />

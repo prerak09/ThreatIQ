@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState } from 'react';
 import { Shield, CheckCircle, Clock, ExternalLink, Download, Hash, Circle, Check } from 'lucide-react';
@@ -10,7 +10,7 @@ const MOCK_PROOFS = [
   { id: 'proof-0j1k2l', txId: 'TX-5b4c', time: '141ms', size: '256B', valid: true },
 ];
 
-function ZKPPanel() {
+export default function ZKPPanel() {
   const [activeTab, setActiveTab] = useState<'verify' | 'certificate' | 'stats'>('verify');
   const [selectedProof, setSelectedProof] = useState(MOCK_PROOFS[0]);
 

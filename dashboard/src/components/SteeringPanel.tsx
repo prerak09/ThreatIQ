@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Zap, Target, ChevronDown, ChevronUp, Minus, Plus, Circle, Check } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 
 const CONCEPTS = [
   { id: 'CREDENTIAL_SPOOFING', name: 'CREDENTIAL_SPOOFING', desc: 'Steering vector for credential manipulation patterns', layer: 3, alpha: 0.7, enabled: true },
@@ -48,7 +48,7 @@ function IOSToggle({ checked, onChange, disabled }: { checked: boolean; onChange
   );
 }
 
-function SteeringPanel() {
+export default function SteeringPanel() {
   const [intensity, setIntensity] = useState(0.5);
   const [activePreset, setActivePreset] = useState(1); // Balanced
   const [concepts, setConcepts] = useState(CONCEPTS.map(c => ({ ...c })));

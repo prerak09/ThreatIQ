@@ -77,7 +77,7 @@ function FeedColumn({
 }: {
   title: string;
   eyebrow: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   iconBgClass: string;
   transactions: Transaction[];
   isRed: boolean;
@@ -155,10 +155,10 @@ export default function RedBlueArena({
         timestamp: Date.now(),
       };
 
-      if (isRed || status !== 'blocked') {
+      if (isFraud || status !== 'blocked') {
         setRedTransactions(prev => [tx, ...prev].slice(0, 20));
       }
-      if (isBlue || status !== 'missed') {
+      if (status === 'detected' || status === 'blocked') {
         setBlueTransactions(prev => [tx, ...prev].slice(0, 20));
       }
 

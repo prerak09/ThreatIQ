@@ -5,10 +5,10 @@ import { TrendingUp, TrendingDown, DollarSign, AlertTriangle } from 'lucide-reac
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const KPIS = [
-  { label: 'Precision', value: '96.2%', trend: 'up', delta: '+0.4' },
-  { label: 'Recall', value: '94.8%', trend: 'up', delta: '+0.3' },
-  { label: 'ROC-AUC', value: '0.987', trend: 'up', delta: '+0.002' },
-  { label: 'Latency', value: '12.3ms', trend: 'down', delta: '-0.8' },
+  { label: 'Precision', value: '96.2%', trend: 'up' as const, delta: '+0.4' },
+  { label: 'Recall', value: '94.8%', trend: 'up' as const, delta: '+0.3' },
+  { label: 'ROC-AUC', value: '0.987', trend: 'up' as const, delta: '+0.002' },
+  { label: 'Latency', value: '12.3ms', trend: 'down' as const, delta: '-0.8' },
 ];
 
 const DETECTION_DATA = [
@@ -40,7 +40,7 @@ function KPICard({ label, value, trend, delta }: { label: string; value: string;
         <span className={`flex items-center gap-0.5 text-sm font-medium ${trend === 'up' ? 'text-[var(--success-green)]' : 'text-[var(--danger-red)]'}`}>
           {trend === 'up' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
           <span>{delta}</span>
-        </div>
+        </span>
       </div>
     </div>
   );
@@ -91,7 +91,7 @@ function DetectionRateChart() {
   );
 }
 
-function FinancialStat({ label, value, color, icon: Icon }: { label: string; value: string; color: string; icon: React.ComponentType<{ className?: string }> }) {
+function FinancialStat({ label, value, color, icon: Icon }: { label: string; value: string; color: string; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }> }) {
   return (
     <div className="flex-1 flex flex-col items-center">
       <p className="stat-label text-center">{label}</p>

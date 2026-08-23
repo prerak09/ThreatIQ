@@ -35,6 +35,6 @@ Thumbs.db
 *.log
 
 # Models
-models/
-*.pkl
-*.onnx
+# Vercel & TypeScript
+.vercel/
+*.tsbuildinfo

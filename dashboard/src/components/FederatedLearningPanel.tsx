@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect } from 'react';
 import { Shield, TrendingUp, BarChart2, Target, Circle, Dot } from 'lucide-react';
@@ -35,7 +35,7 @@ const DP_DATA = [
   { round: 15, no_dp: 0.95, dp: 0.88 },
 ];
 
-function FederatedLearningPanel() {
+export default function FederatedLearningPanel() {
   const [epsilonUsed, setEpsilonUsed] = useState(6.75);
   const [currentRound, setCurrentRound] = useState(12);
   const [globalAccuracy, setGlobalAccuracy] = useState(0.9234);
@@ -44,25 +44,25 @@ function FederatedLearningPanel() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setEpsilonUsed(prev => Math.min(10, prev + 0.01));
-      setGlobalAccuracy(prev => Math.min(0.95, prev + Math.random() * 0.001));
+      setEpsilonUsed((prev) => Math.min(10, prev + 0.01));
+      setGlobalAccuracy((prev) => Math.min(0.95, prev + Math.random() * 0.001));
     }, 5000);
     return () => clearInterval(interval);
   }, []);
 
   const handleRunRound = () => {
     setIsTraining(true);
-    setCurrentRound(c => c + 1);
-    setGlobalAccuracy(c => Math.min(0.95, c + 0.005));
-    setEpsilonUsed(c => c + 0.25);
+    setCurrentRound((c) => c + 1);
+    setGlobalAccuracy((c) => Math.min(0.95, c + 0.005));
+    setEpsilonUsed((c) => c + 0.25);
     
     // Simulate training
-    const trainingBanks = BANKS.filter((_, i) => i < 4).map(b => b.id);
-    setBankStatuses(prev => prev.map(b => ({ ...b, training: trainingBanks.includes(b.id) })));
+    const trainingBanks = BANKS.slice(0, 4).map((b) => b.id);
+    setBankStatuses((prev) => prev.map((b) => ({ ...b, training: trainingBanks.includes(b.id) })));
     
     setTimeout(() => {
       setIsTraining(false);
-      setBankStatuses(prev => prev.map(b => ({ ...b, training: false })));
+      setBankStatuses((prev) => prev.map((b) => ({ ...b, training: false })));
     }, 3000);
   };
 
@@ -214,7 +214,7 @@ function FederatedLearningPanel() {
             <p className="stat-value text-[var(--ink-black)]">{Math.round(bank.accuracy * 100)}%</p>
             <p className="caption">{bank.samples.toLocaleString()} samples · {bank.latency.toFixed(1)}ms</p>
           </div>
-        )}
+        ))}
       </div>
     </div>
   );

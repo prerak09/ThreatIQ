@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Shield, Network, Brain, Bot, Lock, Layers, Settings, Zap, Gamepad2, Key, Search, Layers as LayersIcon } from 'lucide-react';
 import RedBlueArena from './RedBlueArena';
 import AttackMatrix from './AttackMatrix';
@@ -93,25 +93,24 @@ export default function ArenaDashboard({ isRunning, isConnected, onStart, onStop
               hidden={activeTab !== tab.id}
               className={activeTab === tab.id ? 'block' : 'hidden'}
             >
-              <React.Fragment key={tab.id}>
-                {tab.id === 'arena' && (
-                  <RedBlueArena 
-                    isRunning={isRunning} 
-                    isConnected={false} // Will be managed internally
-                    onStart={tabComponents['arena'] === RedBlueArena ? undefined : undefined}
-                    onStop={tabComponents['arena'] === RedBlueArena ? undefined : undefined}
-                  />
-                )}
-                {tab.id === 'topology' && <TopologyGraph />}
-                {tab.id === 'xai' && <ExplainabilityPanel />}
-                {tab.id === 'marl' && <MARLStatus />}
-                {tab.id === 'steering' && <SteeringPanel />}
-                {tab.id === 'constraints' && <ConstraintPanel />}
-                {tab.id === 'federated' && <FederatedLearningPanel />}
-                {tab.id === 'game' && <GameTheoryPanel />}
-                {tab.id === 'zkp' && <ZKPPanel />}
-              </React.Fragment>
-            ))}
+              {tab.id === 'arena' && (
+                <RedBlueArena 
+                  isRunning={isRunning} 
+                  isConnected={isConnected}
+                  onStart={onStart}
+                  onStop={onStop}
+                />
+              )}
+              {tab.id === 'topology' && <TopologyGraph />}
+              {tab.id === 'xai' && <ExplainabilityPanel />}
+              {tab.id === 'marl' && <MARLStatus />}
+              {tab.id === 'steering' && <SteeringPanel />}
+              {tab.id === 'constraints' && <ConstraintPanel />}
+              {tab.id === 'federated' && <FederatedLearningPanel />}
+              {tab.id === 'game' && <GameTheoryPanel />}
+              {tab.id === 'zkp' && <ZKPPanel />}
+            </div>
+          ))}
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState } from 'react';
 import { FileText, AlertCircle, CheckCircle, Clock, ArrowRight, Download, ChevronDown, ChevronUp, Shield } from 'lucide-react';
@@ -158,8 +158,8 @@ function SARRow({ sar, onExpand, isExpanded, onAction }: {
               <Clock className="w-3 h-3" /> Audit log
             </a>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -203,7 +203,7 @@ export default function SARPanel() {
       </div>
 
       <div className="space-y-4">
-        {activeTab === 'pending' ? pendingSars : filedSars}.map((sar) => (
+        {(activeTab === 'pending' ? pendingSars : filedSars).map((sar) => (
           <SARRow
             key={sar.id}
             sar={sar}

@@ -19,7 +19,7 @@ const VIOLATIONS = [
   { type: 'Amount Range', count: 3, color: 'rgba(207,69,0,0.4)' },
 ];
 
-function ConstraintPanel() {
+export default function ConstraintPanel() {
   const [satisfactionRate, setSatisfactionRate] = useState(99.6);
 
   useEffect(() => {
