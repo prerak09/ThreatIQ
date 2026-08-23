@@ -26,66 +26,13 @@ const ATTACK_VECTORS = [
   { id: 'velocity_abuse', name: 'Velocity Abuse' },
 ];
 
-const INITIAL_TRANSACTIONS: Transaction[] = [
-  {
-    id: 'TXN-88FCB93493D9',
-    amount: 14500.0,
-    currency: 'USD',
-    channel: 'tokenized',
-    attack_type: 'Multi-Hop CNP',
-    status: 'detected',
-    timestamp: Date.now() - 2000,
-    card_last4: '4521',
-    blue_team_confidence: 0.94,
-    blue_team_result: {
-      is_fraud: true,
-      confidence: 0.94,
-      latency_ms: 11.8,
-      engine_scores: { xgboost: 0.96, lightgbm: 0.93, iforest: 0.88 },
-    },
-  },
-  {
-    id: 'TXN-54C99A10CA78',
-    amount: 3200.0,
-    currency: 'EUR',
-    channel: 'e-commerce',
-    attack_type: 'Synthetic Identity',
-    status: 'detected',
-    timestamp: Date.now() - 7000,
-    card_last4: '8890',
-    blue_team_confidence: 0.89,
-    blue_team_result: {
-      is_fraud: true,
-      confidence: 0.89,
-      latency_ms: 9.4,
-      engine_scores: { xgboost: 0.91, lightgbm: 0.88, iforest: 0.74 },
-    },
-  },
-  {
-    id: 'TXN-C4BCFEA42E34',
-    amount: 85.5,
-    currency: 'USD',
-    channel: 'pos_contactless',
-    attack_type: 'Normal Payment',
-    status: 'approved',
-    timestamp: Date.now() - 15000,
-    card_last4: '1102',
-    blue_team_confidence: 0.08,
-    blue_team_result: {
-      is_fraud: false,
-      confidence: 0.08,
-      latency_ms: 6.2,
-      engine_scores: { xgboost: 0.06, lightgbm: 0.07, iforest: 0.12 },
-    },
-  },
-];
-
 export interface RedBlueArenaProps {
   isRunning?: boolean;
   isConnected?: boolean;
   onStart?: () => void;
   onStop?: () => void;
-  onAttackInjected?: (injectedCount: number, detected: number, addedRoi: number) => void;
+  transactions?: Transaction[];
+  onAttackInjected?: (injectedCount: number, detected: number, addedRoi: number, newTxs?: Transaction[]) => void;
 }
 
 export default function RedBlueArena({ 
@@ -93,23 +40,13 @@ export default function RedBlueArena({
   isConnected = false, 
   onStart, 
   onStop,
+  transactions: propTransactions = [],
   onAttackInjected,
 }: RedBlueArenaProps) {
-  const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [selectedAttack, setSelectedAttack] = useState('multi_hop_cnp');
   const [injectCount, setInjectCount] = useState(5);
   const [isInjecting, setIsInjecting] = useState(false);
   const [selectedTxPayload, setSelectedTxPayload] = useState<Transaction | null>(null);
-  const [threshold, setThreshold] = useState(0.75);
-
-  useEffect(() => {
-    const unsub = streamClient.onTransaction((tx) => {
-      if (isRunning) {
-        setTransactions((prev) => [tx, ...prev.slice(0, 30)]);
-      }
-    });
-    return () => unsub();
-  }, [isRunning]);
 
   const handleInjectAttack = async () => {
     setIsInjecting(true);
@@ -117,11 +54,11 @@ export default function RedBlueArena({
       const res = await api.injectAttack(selectedAttack, injectCount);
       if (res && res.results && res.results.length > 0) {
         const mapped: Transaction[] = res.results.map((r: any) => ({
-          id: r.id || r.transaction_id || `TXN-${Math.random().toString(36).substr(2, 6)}`,
+          id: r.id || r.transaction_id || `TXN-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
           amount: r.amount || 2500,
           currency: r.currency || 'USD',
           channel: r.channel || r.auth_channel || 'tokenized',
-          attack_type: r.attack_vector_id || r.attack_vector || selectedAttack,
+          attack_type: r.attack_vector_id || r.attack_vector || selectedAttack.replace(/_/g, ' ').toUpperCase(),
           status: r.status || (r.blue_team_flagged ? 'detected' : 'missed'),
           timestamp: Date.now(),
           is_fraud: true,
@@ -140,10 +77,8 @@ export default function RedBlueArena({
         });
 
         if (onAttackInjected) {
-          onAttackInjected(mapped.length, detected, addedRoi);
+          onAttackInjected(mapped.length, detected, addedRoi, mapped);
         }
-
-        setTransactions((prev) => [...mapped, ...prev.slice(0, 30)]);
       }
     } catch (err) {
       console.warn('Attack injection fallback:', err);
@@ -160,16 +95,15 @@ export default function RedBlueArena({
         blue_team_confidence: 0.87,
       };
       if (onAttackInjected) {
-        onAttackInjected(1, mock.status === 'detected' ? 1 : 0, 1500);
+        onAttackInjected(1, mock.status === 'detected' ? 1 : 0, 1500, [mock]);
       }
-      setTransactions((prev) => [mock, ...prev.slice(0, 30)]);
     } finally {
       setIsInjecting(false);
     }
   };
 
-  const redAttacks = transactions.filter((t) => t.is_fraud || t.attack_type !== 'Normal Payment');
-  const blueDefenses = transactions;
+  const redAttacks = propTransactions.filter((t) => t.is_fraud || t.attack_type !== 'Normal Payment');
+  const blueDefenses = propTransactions;
 
   return (
     <div className="section-padding relative">
@@ -189,7 +123,7 @@ export default function RedBlueArena({
             <select
               value={selectedAttack}
               onChange={(e) => setSelectedAttack(e.target.value)}
-              className="px-4 py-2.5 rounded-full bg-[var(--lifted-cream)] border border-[var(--dust-taupe)] text-sm font-medium text-[var(--ink-black)] focus:outline-none transition-colors hover:border-black/30"
+              className="px-4 py-2.5 rounded-full bg-[var(--lifted-cream)] border border-[var(--dust-taupe)] text-sm font-medium text-[var(--ink-black)] focus:outline-none transition-colors hover:border-black/30 cursor-pointer"
             >
               {ATTACK_VECTORS.map((atk) => (
                 <option key={atk.id} value={atk.id}>{atk.name}</option>
@@ -199,7 +133,7 @@ export default function RedBlueArena({
             <select
               value={injectCount}
               onChange={(e) => setInjectCount(Number(e.target.value))}
-              className="px-4 py-2.5 rounded-full bg-[var(--lifted-cream)] border border-[var(--dust-taupe)] text-sm font-medium text-[var(--ink-black)] focus:outline-none transition-colors hover:border-black/30"
+              className="px-4 py-2.5 rounded-full bg-[var(--lifted-cream)] border border-[var(--dust-taupe)] text-sm font-medium text-[var(--ink-black)] focus:outline-none transition-colors hover:border-black/30 cursor-pointer"
             >
               <option value={1}>1 Vector</option>
               <option value={5}>5 Vectors (Burst)</option>

@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Shield, 
@@ -24,6 +24,7 @@ import FederatedLearningPanel from './FederatedLearningPanel';
 import GameTheoryPanel from './GameTheoryPanel';
 import ZKPPanel from './ZKPPanel';
 import SARPanel from './SARPanel';
+import { Transaction } from '@/lib/api';
 
 export const TABS = [
   { id: 'arena', label: 'Adversarial Arena', icon: Shield },
@@ -47,7 +48,8 @@ interface ArenaDashboardProps {
   isConnected: boolean;
   onStart: () => void;
   onStop: () => void;
-  onAttackInjected?: (injectedCount: number, detected: number, addedRoi: number) => void;
+  transactions?: Transaction[];
+  onAttackInjected?: (injectedCount: number, detected: number, addedRoi: number, newTxs?: Transaction[]) => void;
 }
 
 export default function ArenaDashboard({ 
@@ -57,8 +59,11 @@ export default function ArenaDashboard({
   isConnected, 
   onStart, 
   onStop,
+  transactions = [],
   onAttackInjected,
 }: ArenaDashboardProps) {
+  const [selectedTxId, setSelectedTxId] = useState<string | undefined>(undefined);
+
   return (
     <div className="w-full">
       {/* Tab Navigation Pill Bar with Apple Sliding Spring */}
@@ -126,12 +131,19 @@ export default function ArenaDashboard({
                 isConnected={isConnected}
                 onStart={onStart}
                 onStop={onStop}
+                transactions={transactions}
                 onAttackInjected={onAttackInjected}
               />
             )}
             {activeTab === 'topology' && <TopologyGraph />}
             {activeTab === 'marl' && <MARLStatus />}
-            {activeTab === 'xai' && <ExplainabilityPanel />}
+            {activeTab === 'xai' && (
+              <ExplainabilityPanel 
+                transactions={transactions}
+                selectedTxId={selectedTxId}
+                onSelectTxId={setSelectedTxId}
+              />
+            )}
             {activeTab === 'steering' && <SteeringPanel />}
             {activeTab === 'constraints' && <ConstraintPanel />}
             {activeTab === 'federated' && <FederatedLearningPanel />}

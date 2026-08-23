@@ -20,6 +20,63 @@ const NAV_TABS: Array<{ id: TabId; label: string }> = [
   { id: 'sar', label: 'SAR' },
 ];
 
+const INITIAL_TRANSACTIONS: Transaction[] = [
+  {
+    id: 'TXN-88FCB93493D9',
+    amount: 14500.0,
+    currency: 'USD',
+    channel: 'tokenized',
+    attack_type: 'Multi-Hop CNP',
+    status: 'detected',
+    timestamp: Date.now() - 2000,
+    card_last4: '4521',
+    is_fraud: true,
+    blue_team_confidence: 0.94,
+    blue_team_result: {
+      is_fraud: true,
+      confidence: 0.94,
+      latency_ms: 11.8,
+      engine_scores: { xgboost: 0.96, lightgbm: 0.93, iforest: 0.88 },
+    },
+  },
+  {
+    id: 'TXN-54C99A10CA78',
+    amount: 3200.0,
+    currency: 'EUR',
+    channel: 'e-commerce',
+    attack_type: 'Synthetic Identity',
+    status: 'detected',
+    timestamp: Date.now() - 7000,
+    card_last4: '8890',
+    is_fraud: true,
+    blue_team_confidence: 0.89,
+    blue_team_result: {
+      is_fraud: true,
+      confidence: 0.89,
+      latency_ms: 9.4,
+      engine_scores: { xgboost: 0.91, lightgbm: 0.88, iforest: 0.74 },
+    },
+  },
+  {
+    id: 'TXN-C4BCFEA42E34',
+    amount: 85.5,
+    currency: 'USD',
+    channel: 'pos_contactless',
+    attack_type: 'Normal Payment',
+    status: 'approved',
+    timestamp: Date.now() - 15000,
+    card_last4: '1102',
+    is_fraud: false,
+    blue_team_confidence: 0.08,
+    blue_team_result: {
+      is_fraud: false,
+      confidence: 0.08,
+      latency_ms: 6.2,
+      engine_scores: { xgboost: 0.06, lightgbm: 0.07, iforest: 0.12 },
+    },
+  },
+];
+
 export default function Page() {
   const [activeTab, setActiveTab] = useState<TabId>('arena');
   const [isRunning, setIsRunning] = useState(false);
@@ -33,6 +90,9 @@ export default function Page() {
   const [latencyMs, setLatencyMs] = useState(11.8);
   const [roiAmount, setRoiAmount] = useState(0);
 
+  // Centralized Transactions List shared across Arena, XAI, SAR, and Topology
+  const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
+
   // Initialize WebSocket and sync with backend
   useEffect(() => {
     streamClient.connect();
@@ -44,6 +104,8 @@ export default function Page() {
     const unsubTx = streamClient.onTransaction((tx: Transaction) => {
       setIsRunning((currentRunning) => {
         if (!currentRunning) return currentRunning;
+
+        setTransactions((prev) => [tx, ...prev.slice(0, 40)]);
 
         setTotalAttacks((prev) => {
           const nextTotal = prev + 1;
@@ -129,18 +191,28 @@ export default function Page() {
       setDetectedCount(0);
       setDetectionRate(0);
       setRoiAmount(0);
+      setTransactions(INITIAL_TRANSACTIONS);
     } catch (e) {
       setIsRunning(false);
       setTotalAttacks(0);
       setDetectedCount(0);
       setDetectionRate(0);
       setRoiAmount(0);
+      setTransactions(INITIAL_TRANSACTIONS);
     } finally {
       setLoadingAction(false);
     }
   };
 
-  const handleManualAttackInjected = (injectedCount: number, detected: number, addedRoi: number) => {
+  const handleManualAttackInjected = (
+    injectedCount: number, 
+    detected: number, 
+    addedRoi: number, 
+    newTxs?: Transaction[]
+  ) => {
+    if (newTxs && newTxs.length > 0) {
+      setTransactions((prev) => [...newTxs, ...prev.slice(0, 40)]);
+    }
     setTotalAttacks((prev) => {
       const nextTotal = prev + injectedCount;
       setDetectedCount((prevDet) => {
@@ -158,7 +230,7 @@ export default function Page() {
       {/* Ghost Watermark */}
       <div className="ghost-watermark top-24 -right-16 text-[180px] select-none opacity-60">ARENA</div>
 
-      {/* Decorative SVG Orbital Arcs with subtle flow animation */}
+      {/* Decorative SVG Orbital Arcs */}
       <svg className="fixed inset-0 w-full h-full pointer-events-none z-0" xmlns="http://www.w3.org/2000/svg">
         <path
           d="M -100,80 Q 200,30 500,160 T 1200,100 T 1800,240"
@@ -213,7 +285,6 @@ export default function Page() {
                   }`}
                   aria-current={isActive ? 'page' : undefined}
                 >
-                  {/* Apple Smooth Sliding Pill Indicator */}
                   {isActive && (
                     <motion.div
                       layoutId="nav-active-pill"
@@ -241,7 +312,7 @@ export default function Page() {
               whileTap={{ scale: 0.92 }}
               onClick={handleReset}
               disabled={loadingAction}
-              className="w-10 h-10 rounded-full border border-[var(--dust-taupe)] bg-white flex items-center justify-center hover:bg-[var(--canvas-cream)] transition-colors shadow-sm disabled:opacity-50"
+              className="w-10 h-10 rounded-full border border-[var(--dust-taupe)] bg-white flex items-center justify-center hover:bg-[var(--canvas-cream)] transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
               title="Reset simulation counters"
               aria-label="Reset simulation"
             >
@@ -384,6 +455,7 @@ export default function Page() {
             isConnected={isConnected}
             onStart={() => setIsRunning(true)}
             onStop={() => setIsRunning(false)}
+            transactions={transactions}
             onAttackInjected={handleManualAttackInjected}
           />
 
