@@ -220,7 +220,7 @@ export default function Page() {
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
               <div>
                 <p className="eyebrow">AUTONOMOUS ADVERSARIAL SIMULATION</p>
-                <h1 className="mt-2.5">ThreatIQ Arena</h1>
+                <h1 className="mt-2.5">ThreatIQ</h1>
                 <p className="subline mt-2.5 max-w-2xl text-[17px]">
                   Enterprise AI Red Team / Blue Team Payment Fraud Simulation
                 </p>

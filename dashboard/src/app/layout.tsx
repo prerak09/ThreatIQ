@@ -10,7 +10,7 @@ const sofiaSans = Sofia_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'ThreatIQ Arena — Mastercard AI Red Team & Blue Team Platform',
+  title: 'ThreatIQ — Autonomous Adversarial AI Platform',
   description:
     'Autonomous Adversarial Simulation Platform — Enterprise AI Red Team / Blue Team Payment Fraud Simulation inspired by Mastercard Design System',
 };
