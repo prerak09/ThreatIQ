@@ -58,37 +58,9 @@ Modern payment networks process hundreds of millions of transactions per day und
 ---
 
 ## 2. System Architecture
+<img width="864" height="538" alt="image" src="https://github.com/user-attachments/assets/c4bb7798-ec16-44a3-afe9-34cd61be2522" />
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                                   THREATIQ ENTERPRISE ARCHITECTURE                                 |
-+---------------------------------------------------------------------------------------------------+
-|                                                                                                   |
-|  [ RED TEAM: ADVERSARIAL GENERATION ]             [ BLUE TEAM: MULTI-TIER DEFENSE ]              |
-|                                                                                                   |
-|  +---------------------------------------+       +---------------------------------------------+  |
-|  | 1. TabDDPM Diffusion Generator        |       | 1. Temporal GNN (TGAT + Time2Vec)           |  |
-|  | 2. MARL Actor-Critic Evasion (v1-v5)  |       | 2. Tree Ensemble (XGBoost + LightGBM)       |  |
-|  | 3. Representation Steering (Wo)       | <---> | 3. Unsupervised Outlier (Isolation Forest)  |  |
-|  | 4. Frank-Wolfe Manifold Constraints   |       | 4. Conformal Prediction Set Calibration     |  |
-|  | 5. Benford's Law Statistical Shaping  |       | 5. KernelSHAP Feature Attributions          |  |
-|  +---------------------------------------+       +---------------------------------------------+  |
-|                                                                                                   |
-|                                    [ COGNITIVE ORCHESTRATION ]                                    |
-|  +---------------------------------------------------------------------------------------------+  |
-|  | * Stackelberg Bi-Level Security Game (Minimax Equilibrium Solver)                             |  |
-|  | * Federated DP-SGD Aggregator (10 Institutional Banking Nodes, epsilon=1.0, delta=1e-5)      |  |
-|  | * Groth16 Zero-Knowledge Verifier (BN254 Elliptic Curve, 192-byte R1CS Proofs)              |  |
-|  | * FinCEN Form 111 Electronic SAR Automated Compliance Pipeline                              |  |
-|  +---------------------------------------------------------------------------------------------+  |
-|                                                                                                   |
-|                            [ PRODUCTION FASTAPI REST & WEBSOCKET ENGINE ]                         |
-|                                    (Deployed on Railway Cloud)                                    |
-|                                                                                                   |
-|                              [ APPLE-GRADE DESIGN SYSTEM DASHBOARD ]                              |
-|                          (Next.js 14 + Tailwind CSS + Framer Motion on Vercel)                    |
-+---------------------------------------------------------------------------------------------------+
-```
+
 
 ---
 
