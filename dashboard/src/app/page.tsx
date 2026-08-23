@@ -151,6 +151,7 @@ export default function Page() {
         if (defense && defense.total_predictions > 0) {
           const estimatedAttacks = Math.round(defense.total_predictions * 0.18);
           const detected = Math.max(0, estimatedAttacks - defense.total_false_negatives);
+          setTotalProcessed(defense.total_predictions);
           setTotalAttacks(estimatedAttacks);
           setDetectedCount(detected);
           setDetectionRate(estimatedAttacks > 0 ? Number(((detected / estimatedAttacks) * 100).toFixed(1)) : 96.4);
@@ -223,6 +224,7 @@ export default function Page() {
     if (newTxs && newTxs.length > 0) {
       setTransactions((prev) => [...newTxs, ...prev.slice(0, 40)]);
     }
+    setTotalProcessed((prev) => prev + injectedCount);
     setTotalAttacks((prev) => {
       const nextTotal = prev + injectedCount;
       setDetectedCount((prevDet) => {
@@ -400,7 +402,7 @@ export default function Page() {
             </div>
           </section>
 
-          {/* 5-Column Stats Stadium Card with Accurate Mathematical Fraud Ratios */}
+          {/* 6-Column Comprehensive Stats Stadium Card */}
           <motion.div 
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
@@ -409,11 +411,24 @@ export default function Page() {
             role="region" 
             aria-label="Live Simulation Statistics"
           >
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6 sm:gap-8 items-center text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-6 items-center text-center">
               
-              {/* Total Attacks Injected */}
+              {/* Total Processed Volume */}
               <div className="flex flex-col items-center">
-                <span className="stat-label">ATTACKS LAUNCHED</span>
+                <span className="stat-label">TOTAL PROCESSED</span>
+                <motion.span 
+                  key={totalProcessed}
+                  initial={{ scale: 1.05 }}
+                  animate={{ scale: 1 }}
+                  className="stat-value-xl text-[var(--ink-black)] mt-1.5"
+                >
+                  {totalProcessed.toLocaleString()}
+                </motion.span>
+              </div>
+
+              {/* Total Fraud Attacks */}
+              <div className="flex flex-col items-center border-l sm:border-l border-[var(--dust-taupe)]/40 pl-3 sm:pl-6">
+                <span className="stat-label">FRAUD ATTACKS</span>
                 <motion.span 
                   key={totalAttacks}
                   initial={{ scale: 1.05 }}
@@ -424,9 +439,9 @@ export default function Page() {
                 </motion.span>
               </div>
 
-              {/* Detected / Blocked Attacks */}
-              <div className="flex flex-col items-center border-l sm:border-l border-[var(--dust-taupe)]/40 pl-4 sm:pl-8">
-                <span className="stat-label">ATTACKS DETECTED</span>
+              {/* Attacks Blocked */}
+              <div className="flex flex-col items-center border-l sm:border-l border-[var(--dust-taupe)]/40 pl-3 sm:pl-6">
+                <span className="stat-label">ATTACKS BLOCKED</span>
                 <motion.span 
                   key={detectedCount}
                   initial={{ scale: 1.05 }}
@@ -437,9 +452,9 @@ export default function Page() {
                 </motion.span>
               </div>
 
-              {/* True Detection Accuracy Rate */}
-              <div className="flex flex-col items-center border-l sm:border-l border-[var(--dust-taupe)]/40 pl-4 sm:pl-8">
-                <span className="stat-label">DETECTION ACCURACY</span>
+              {/* Block Rate / Accuracy */}
+              <div className="flex flex-col items-center border-l sm:border-l border-[var(--dust-taupe)]/40 pl-3 sm:pl-6">
+                <span className="stat-label">BLOCK RATE</span>
                 <motion.span 
                   key={detectionRate}
                   initial={{ scale: 1.05 }}
@@ -451,14 +466,14 @@ export default function Page() {
               </div>
 
               {/* Latency */}
-              <div className="flex flex-col items-center border-l sm:border-l border-[var(--dust-taupe)]/40 pl-4 sm:pl-8">
-                <span className="stat-label">AVERAGE LATENCY</span>
+              <div className="flex flex-col items-center border-l sm:border-l border-[var(--dust-taupe)]/40 pl-3 sm:pl-6">
+                <span className="stat-label">AVG LATENCY</span>
                 <span className="stat-value-xl mt-1.5">{latencyMs}ms</span>
               </div>
 
-              {/* Loss Avoided / ROI */}
-              <div className="col-span-2 sm:col-span-1 flex flex-col items-center border-l-0 lg:border-l border-[var(--dust-taupe)]/40 lg:pl-8">
-                <span className="stat-label">FRAUD PREVENTED (ROI)</span>
+              {/* Loss Prevented / ROI */}
+              <div className="col-span-2 sm:col-span-1 flex flex-col items-center border-l-0 lg:border-l border-[var(--dust-taupe)]/40 lg:pl-6">
+                <span className="stat-label">FRAUD PREVENTED</span>
                 <span className="stat-value-xl text-[var(--success-green)] mt-1.5">${roiAmount.toLocaleString()}</span>
               </div>
 
