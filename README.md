@@ -1,8 +1,7 @@
 <div align="center">
 
-<img width="2743" height="872" alt="Frame 13" src="https://github.com/user-attachments/assets/5e75be20-a601-44b0-87ae-5efafc16374b" />
+<img width="2743" height="872" alt="Frame 13 (2)" src="https://github.com/user-attachments/assets/46b7ad48-629d-4b22-9ea8-12d183578938" />
 
-<img width="2743" height="872" alt="Frame 13 (1)" src="https://github.com/user-attachments/assets/7c95f644-1f15-4c77-89e8-897269d338a5" />
 
 
 
