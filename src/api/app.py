@@ -300,7 +300,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-_cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
+_cors_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in _cors_origins],
