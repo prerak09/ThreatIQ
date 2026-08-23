@@ -1,111 +1,83 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Bolt, Shield, ChevronDown } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { 
+  ShieldAlert, 
+  ShieldCheck, 
+  Zap, 
+  CheckCircle, 
+  XCircle, 
+  Eye, 
+  Sliders, 
+  RefreshCw,
+  Send,
+  Code
+} from 'lucide-react';
+import { api, Transaction } from '@/lib/api';
+import { streamClient } from '@/lib/websocket';
 
-interface Transaction {
-  id: string;
-  amount: number;
-  attack_type: string;
-  attack_vector: string;
-  status: 'detected' | 'missed' | 'blocked';
-  channel: string;
-  timestamp: number;
-}
-
-const ATTACK_TYPES = [
-  'Synthetic Identity',
-  'Multi-Hop CNP',
-  'Prompt Injection',
-  'Voice Deepfake',
-  'Merchant API Abuse',
-  'Velocity Evasion',
+const ATTACK_VECTORS = [
+  { id: 'multi_hop_cnp', name: 'Multi-Hop CNP' },
+  { id: 'synthetic_identity', name: 'Synthetic Identity' },
+  { id: 'prompt_injection', name: 'Prompt Injection' },
+  { id: 'voice_deepfake', name: 'Voice Deepfake' },
+  { id: 'credential_stuffing', name: 'Credential Stuffing' },
+  { id: 'velocity_abuse', name: 'Velocity Abuse' },
 ];
 
-const CHANNELS = ['Ecommerce', 'POS', 'Mobile Wallet', 'CNP', 'P2P'];
-
-function formatAmount(amount: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(amount);
-}
-
-function formatTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function getStatusChip(status: Transaction['status']) {
-  const configs = {
-    detected: { label: 'DETECTED', className: 'status-chip success' },
-    blocked: { label: 'BLOCKED', className: 'status-chip success' },
-    missed: { label: 'MISSED', className: 'status-chip danger' },
-  };
-  const config = configs[status];
-  return <span className={config.className}>{config.label}</span>;
-}
-
-function TransactionRow({ tx, isNewest }: { tx: Transaction; isNewest: boolean }) {
-  const isRed = tx.status === 'missed' || tx.status === 'detected';
-  const isBlue = tx.status === 'detected' || tx.status === 'blocked';
-  
-  return (
-    <div className={`card-white-pill p-4 flex items-center gap-4 transition-all ${isNewest ? 'border-l-4 border-[var(--light-signal-orange)]' : ''}`}>
-      <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${isRed ? 'bg-[var(--danger-tint)]' : 'bg-[var(--info-tint)]'}`}>
-        {isRed ? (
-          <Bolt className="w-5 h-5 text-[var(--danger-red)]" />
-        ) : (
-          <Shield className="w-5 h-5 text-[var(--link-blue)]" />
-        )}
-      </div>
-      <div className="flex-1 min-w-0 flex items-center gap-3">
-        <span className="font-medium text-[var(--ink-black)] whitespace-nowrap">{formatAmount(tx.amount)}</span>
-        <span className="pill-btn inactive text-xs">{tx.attack_type}</span>
-        <span className="px-2 py-0.5 rounded-full border border-[var(--dust-taupe)] text-[var(--slate-gray)] text-xs font-medium">{tx.channel}</span>
-      </div>
-      <span className="text-[var(--slate-gray)] text-xs font-medium whitespace-nowrap">{formatTime(tx.timestamp)}</span>
-      {getStatusChip(tx.status)}
-    </div>
-  );
-}
-
-function FeedColumn({ 
-  title, 
-  eyebrow, 
-  icon: Icon, 
-  iconBgClass, 
-  transactions, 
-  isRed,
-  emptyMessage 
-}: {
-  title: string;
-  eyebrow: string;
-  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
-  iconBgClass: string;
-  transactions: Transaction[];
-  isRed: boolean;
-  emptyMessage: string;
-}) {
-  return (
-    <div className="flex-1 min-w-0 flex flex-col">
-      <div className="flex items-center gap-3 mb-6">
-        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${iconBgClass}`}>
-          <Icon className="w-5 h-5" style={{ color: isRed ? 'var(--danger-red)' : 'var(--link-blue)' }} />
-        </div>
-        <div>
-          <p className="eyebrow">{eyebrow}</p>
-          <h3 className="text-[var(--ink-black)] font-medium text-lg">{title}</h3>
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto space-y-3 pr-2">
-        {transactions.length === 0 ? (
-          <div className="text-center py-12 text-[var(--slate-gray)]">{emptyMessage}</div>
-        ) : (
-          transactions.map((tx, idx) => (
-            <TransactionRow key={tx.id} tx={tx} isNewest={idx === 0} />
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
+const INITIAL_TRANSACTIONS: Transaction[] = [
+  {
+    id: 'TXN-88FCB93493D9',
+    amount: 14500.0,
+    currency: 'USD',
+    channel: 'tokenized',
+    attack_type: 'Multi-Hop CNP',
+    status: 'detected',
+    timestamp: Date.now() - 2000,
+    card_last4: '4521',
+    blue_team_confidence: 0.94,
+    blue_team_result: {
+      is_fraud: true,
+      confidence: 0.94,
+      latency_ms: 11.8,
+      engine_scores: { xgboost: 0.96, lightgbm: 0.93, iforest: 0.88 },
+    },
+  },
+  {
+    id: 'TXN-54C99A10CA78',
+    amount: 3200.0,
+    currency: 'EUR',
+    channel: 'e-commerce',
+    attack_type: 'Synthetic Identity',
+    status: 'detected',
+    timestamp: Date.now() - 7000,
+    card_last4: '8890',
+    blue_team_confidence: 0.89,
+    blue_team_result: {
+      is_fraud: true,
+      confidence: 0.89,
+      latency_ms: 9.4,
+      engine_scores: { xgboost: 0.91, lightgbm: 0.88, iforest: 0.74 },
+    },
+  },
+  {
+    id: 'TXN-C4BCFEA42E34',
+    amount: 85.5,
+    currency: 'USD',
+    channel: 'pos_contactless',
+    attack_type: 'Normal Payment',
+    status: 'approved',
+    timestamp: Date.now() - 15000,
+    card_last4: '1102',
+    blue_team_confidence: 0.08,
+    blue_team_result: {
+      is_fraud: false,
+      confidence: 0.08,
+      latency_ms: 6.2,
+      engine_scores: { xgboost: 0.06, lightgbm: 0.07, iforest: 0.12 },
+    },
+  },
+];
 
 export interface RedBlueArenaProps {
   isRunning?: boolean;
@@ -116,121 +88,265 @@ export interface RedBlueArenaProps {
 
 export default function RedBlueArena({ 
   isRunning = false, 
-  isConnected = false,
-  onStart,
+  isConnected = false, 
+  onStart, 
   onStop 
 }: RedBlueArenaProps) {
-  const [redTransactions, setRedTransactions] = useState<Transaction[]>([]);
-  const [blueTransactions, setBlueTransactions] = useState<Transaction[]>([]);
-  const [totalAttacks, setTotalAttacks] = useState(0);
-  const [totalDetected, setTotalDetected] = useState(0);
-  const [totalBlocked, setTotalBlocked] = useState(0);
-  const [avgResponse, setAvgResponse] = useState(11.8);
+  const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
+  const [selectedAttack, setSelectedAttack] = useState('multi_hop_cnp');
+  const [injectCount, setInjectCount] = useState(5);
+  const [isInjecting, setIsInjecting] = useState(false);
+  const [selectedTxPayload, setSelectedTxPayload] = useState<Transaction | null>(null);
+  const [threshold, setThreshold] = useState(0.75);
 
-  // Simulate live transactions
+  // Subscribe to live transactions
   useEffect(() => {
-    if (!isRunning) return;
+    const unsub = streamClient.onTransaction((tx) => {
+      setTransactions((prev) => [tx, ...prev.slice(0, 30)]);
+    });
+    return () => unsub();
+  }, []);
 
-    const interval = setInterval(() => {
-      const isFraud = Math.random() < 0.6;
-      const attackType = ATTACK_TYPES[Math.floor(Math.random() * ATTACK_TYPES.length)];
-      const channel = CHANNELS[Math.floor(Math.random() * CHANNELS.length)];
-      const amount = Math.random() * 50000 + 5;
-      
-      let status: Transaction['status'];
-      if (isFraud) {
-        const detected = Math.random() < 0.69;
-        status = detected ? 'detected' : 'missed';
-      } else {
-        status = 'blocked';
+  const handleInjectAttack = async () => {
+    setIsInjecting(true);
+    try {
+      const res = await api.injectAttack(selectedAttack, injectCount);
+      if (res && res.results && res.results.length > 0) {
+        const mapped: Transaction[] = res.results.map((r: any) => ({
+          id: r.id || r.transaction_id || `TXN-${Math.random().toString(36).substr(2, 6)}`,
+          amount: r.amount || 2500,
+          currency: r.currency || 'USD',
+          channel: r.channel || r.auth_channel || 'tokenized',
+          attack_type: r.attack_vector_id || r.attack_vector || selectedAttack,
+          status: r.status || (r.blue_team_flagged ? 'detected' : 'missed'),
+          timestamp: Date.now(),
+          is_fraud: true,
+          card_last4: r.card_last4 || '9901',
+          blue_team_confidence: r.blue_team_confidence || 0.88,
+          blue_team_result: r.blue_team_result,
+        }));
+        setTransactions((prev) => [...mapped, ...prev.slice(0, 30)]);
       }
-
-      const tx: Transaction = {
-        id: `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-        amount,
-        attack_type: attackType,
-        attack_vector: attackType,
-        status,
-        channel,
+    } catch (err) {
+      console.warn('Attack injection local simulation:', err);
+      // Fallback local injection
+      const mock: Transaction = {
+        id: `TXN-${Date.now().toString(36).toUpperCase()}`,
+        amount: Math.round(Math.random() * 8000 + 500),
+        currency: 'USD',
+        channel: 'e-commerce',
+        attack_type: selectedAttack.replace(/_/g, ' ').toUpperCase(),
+        status: Math.random() > 0.3 ? 'detected' : 'missed',
         timestamp: Date.now(),
+        is_fraud: true,
+        card_last4: '7721',
+        blue_team_confidence: 0.87,
       };
+      setTransactions((prev) => [mock, ...prev.slice(0, 30)]);
+    } finally {
+      setIsInjecting(false);
+    }
+  };
 
-      if (isFraud || status !== 'blocked') {
-        setRedTransactions(prev => [tx, ...prev].slice(0, 20));
-      }
-      if (status === 'detected' || status === 'blocked') {
-        setBlueTransactions(prev => [tx, ...prev].slice(0, 20));
-      }
+  const handleUpdateThreshold = async (newVal: number) => {
+    setThreshold(newVal);
+    try {
+      await api.updateThreshold(newVal);
+    } catch (e) {
+      // ignore
+    }
+  };
 
-      setTotalAttacks(prev => prev + 1);
-      if (status === 'detected') setTotalDetected(prev => prev + 1);
-      if (status === 'blocked') setTotalBlocked(prev => prev + 1);
-      
-      // Simulate response time variation
-      setAvgResponse(prev => Math.max(5, Math.min(25, prev + (Math.random() - 0.5) * 2)));
-    }, 1500);
-
-    return () => clearInterval(interval);
-  }, [isRunning]);
+  const redAttacks = transactions.filter((t) => t.is_fraud || t.attack_type !== 'Normal Payment');
+  const blueDefenses = transactions;
 
   return (
-    <div className="card-stadium p-8 relative overflow-hidden">
-      {/* Orange arc connecting headers */}
-      <div className="absolute top-8 left-1/2 -translate-x-1/2 w-1.5 h-[calc(100%-2rem)] bg-gradient-to-b from-[var(--light-signal-orange)] to-transparent pointer-events-none" />
-      
-      <div className="flex flex-col lg:flex-row gap-8 relative z-10">
-        {/* Red Team Column */}
-        <FeedColumn
-          title="Attack Stream"
-          eyebrow="RED TEAM"
-          icon={Bolt}
-          iconBgClass="bg-[var(--danger-tint)]"
-          transactions={redTransactions}
-          isRed={true}
-          emptyMessage="No attack transactions yet"
-        />
+    <div className="section-padding relative">
+      {/* Quick Attack Injector Control Bar */}
+      <div className="card-stadium p-6 sm:p-8 mb-10 border border-[rgba(20,20,19,0.04)]">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div>
+            <p className="eyebrow">RED TEAM ADVERSARIAL INJECTOR</p>
+            <h3 className="mt-1 text-2xl font-medium">Inject Synthetic Attack Payload</h3>
+          </div>
 
-        {/* VS Divider */}
-        <div className="hidden lg:flex flex-col items-center justify-center px-4 relative">
-          <div className="w-px h-full bg-[var(--dust-taupe)]" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-            <div className="w-14 h-14 rounded-full bg-white border-2 border-[var(--ink-black)] flex items-center justify-center shadow-level-2 z-10">
-              <span className="text-[var(--ink-black)] font-medium text-sm">VS</span>
+          <div className="flex items-center gap-3.5 flex-wrap">
+            <select
+              value={selectedAttack}
+              onChange={(e) => setSelectedAttack(e.target.value)}
+              className="px-4 py-2.5 rounded-full bg-[var(--lifted-cream)] border border-[var(--dust-taupe)] text-sm font-medium text-[var(--ink-black)] focus:outline-none"
+            >
+              {ATTACK_VECTORS.map((atk) => (
+                <option key={atk.id} value={atk.id}>{atk.name}</option>
+              ))}
+            </select>
+
+            <select
+              value={injectCount}
+              onChange={(e) => setInjectCount(Number(e.target.value))}
+              className="px-4 py-2.5 rounded-full bg-[var(--lifted-cream)] border border-[var(--dust-taupe)] text-sm font-medium text-[var(--ink-black)] focus:outline-none"
+            >
+              <option value={1}>1 Vector</option>
+              <option value={5}>5 Vectors (Burst)</option>
+              <option value={20}>20 Vectors (Swarm)</option>
+            </select>
+
+            <button
+              onClick={handleInjectAttack}
+              disabled={isInjecting}
+              className="btn-primary text-sm px-6 py-2.5 shadow-sm"
+            >
+              <Zap className="w-4 h-4 text-[var(--light-signal-orange)]" />
+              <span>{isInjecting ? 'Injecting...' : 'Launch Attack'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Dual Column: Red Team (Attacks) vs Blue Team (Detection) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+        
+        {/* Red Team Column */}
+        <div className="card-stadium p-7 sm:p-8 border border-[rgba(20,20,19,0.04)]">
+          <div className="flex items-center justify-between mb-6 pb-4 border-b border-[var(--dust-taupe)]/40">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-[#FEEAE8] flex items-center justify-center">
+                <ShieldAlert className="w-5 h-5 text-[var(--danger-red)]" />
+              </div>
+              <div>
+                <p className="eyebrow">RED TEAM SIMULATION</p>
+                <h3 className="text-xl font-medium">Adversarial Probing Stream</h3>
+              </div>
             </div>
+            <span className="pill-btn inactive text-xs">
+              {redAttacks.length} Active
+            </span>
+          </div>
+
+          <div className="space-y-3.5 max-h-[500px] overflow-y-auto pr-2">
+            {redAttacks.length === 0 ? (
+              <p className="text-center py-16 text-[var(--slate-gray)]">No active attacks in stream. Launch an attack above.</p>
+            ) : (
+              redAttacks.map((tx) => (
+                <div key={tx.id} className="p-4 bg-[var(--lifted-cream)] rounded-2xl border border-[rgba(20,20,19,0.04)] flex items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-semibold text-sm text-[var(--ink-black)]">{tx.id}</span>
+                      <span className="status-chip danger text-[10px]">ATTACK</span>
+                    </div>
+                    <p className="caption text-xs">
+                      {tx.attack_type} · {tx.currency || 'USD'} {tx.amount.toLocaleString()} · card ****{tx.card_last4 || '4521'}
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => setSelectedTxPayload(tx)}
+                    className="satellite-btn !w-9 !h-9"
+                    title="Inspect ISO20022 message payload"
+                  >
+                    <Code className="w-4 h-4 text-[var(--slate-gray)]" />
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
         {/* Blue Team Column */}
-        <FeedColumn
-          title="Defense Stream"
-          eyebrow="BLUE TEAM"
-          icon={Shield}
-          iconBgClass="bg-[var(--info-tint)]"
-          transactions={blueTransactions}
-          isRed={false}
-          emptyMessage="No defense actions yet"
-        />
-
-        {/* Footer Stats */}
-        <div className="lg:col-span-3 mt-8 pt-6 border-t border-[var(--dust-taupe)] flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-1">
-            <span className="stat-label">Attacks/min</span>
-            <span className="stat-value ml-2">{totalAttacks}</span>
-          </div>
-          <div className="w-px h-8 bg-[var(--dust-taupe)]" />
-          <div className="flex items-center gap-1">
-            <span className="stat-label">Block rate</span>
-            <span className="stat-value text-[var(--success-green)] ml-2">
-              {totalAttacks > 0 ? Math.round(((totalDetected + totalBlocked) / totalAttacks) * 100) : 0}%
+        <div className="card-stadium p-7 sm:p-8 border border-[rgba(20,20,19,0.04)]">
+          <div className="flex items-center justify-between mb-6 pb-4 border-b border-[var(--dust-taupe)]/40">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-[#EBF3FE] flex items-center justify-center">
+                <ShieldCheck className="w-5 h-5 text-[var(--link-blue)]" />
+              </div>
+              <div>
+                <p className="eyebrow">BLUE TEAM DEFENSE</p>
+                <h3 className="text-xl font-medium">GNN Ensemble Decision Stream</h3>
+              </div>
+            </div>
+            <span className="pill-btn active text-xs bg-[var(--link-blue)]">
+              Real-time
             </span>
           </div>
-          <div className="w-px h-8 bg-[var(--dust-taupe)]" />
-          <div className="flex items-center gap-1">
-            <span className="stat-label">Avg response</span>
-            <span className="stat-value ml-2">{avgResponse.toFixed(1)}ms</span>
+
+          <div className="space-y-3.5 max-h-[500px] overflow-y-auto pr-2">
+            {blueDefenses.length === 0 ? (
+              <p className="text-center py-16 text-[var(--slate-gray)]">No decisions yet.</p>
+            ) : (
+              blueDefenses.map((tx) => {
+                const isDetected = tx.status === 'detected' || tx.status === 'blocked';
+                return (
+                  <div key={tx.id} className="p-4 bg-[var(--lifted-cream)] rounded-2xl border border-[rgba(20,20,19,0.04)] flex items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-sm text-[var(--ink-black)]">{tx.id}</span>
+                        <span className={`status-chip text-[10px] ${isDetected ? 'danger' : 'success'}`}>
+                          {isDetected ? 'BLOCKED' : 'CLEARED'}
+                        </span>
+                        <span className="caption font-mono text-[11px]">
+                          {Math.round((tx.blue_team_confidence || 0.85) * 100)}% conf
+                        </span>
+                      </div>
+                      <p className="caption text-xs">
+                        Channel: {tx.channel || 'tokenized'} · Latency {tx.blue_team_result?.latency_ms || 11.2}ms
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => setSelectedTxPayload(tx)}
+                      className="satellite-btn !w-9 !h-9"
+                      title="View Decision & SHAP"
+                    >
+                      <Eye className="w-4 h-4 text-[var(--slate-gray)]" />
+                    </button>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
+
       </div>
+
+      {/* Transaction ISO 20022 & Decision Inspector Modal */}
+      {selectedTxPayload && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[32px] max-w-xl w-full p-8 shadow-2xl relative animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <span className="eyebrow">ISO 20022 TELEMETRY</span>
+                <h3 className="text-xl font-medium mt-1">{selectedTxPayload.id}</h3>
+              </div>
+              <button
+                onClick={() => setSelectedTxPayload(null)}
+                className="w-9 h-9 rounded-full bg-[var(--lifted-cream)] flex items-center justify-center text-[var(--slate-gray)] hover:text-black"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4 mb-6 text-sm">
+              <div className="p-4 bg-[var(--lifted-cream)] rounded-2xl space-y-2">
+                <div className="flex justify-between"><span className="text-[var(--slate-gray)]">Amount:</span> <span className="font-semibold">{selectedTxPayload.currency || 'USD'} {selectedTxPayload.amount.toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-[var(--slate-gray)]">Attack Vector:</span> <span className="font-semibold text-[var(--danger-red)]">{selectedTxPayload.attack_type}</span></div>
+                <div className="flex justify-between"><span className="text-[var(--slate-gray)]">Ensemble Confidence:</span> <span className="font-semibold text-[var(--link-blue)]">{Math.round((selectedTxPayload.blue_team_confidence || 0.88) * 100)}%</span></div>
+                <div className="flex justify-between"><span className="text-[var(--slate-gray)]">ISO Standard:</span> <span className="font-mono">pacs.008.001.08 (Mastercard SEPA)</span></div>
+              </div>
+
+              <div className="p-4 bg-gray-900 text-green-400 font-mono text-xs rounded-2xl overflow-x-auto">
+                <pre>{JSON.stringify(selectedTxPayload.blue_team_result || selectedTxPayload, null, 2)}</pre>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setSelectedTxPayload(null)}
+              className="btn-primary w-full py-3"
+            >
+              Close Inspector
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
