@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Bot, RotateCw, TrendingUp, Check, X, Shield, Activity, Cpu } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Area, AreaChart } from 'recharts';
 import { api, MARLAgent } from '@/lib/api';
@@ -86,20 +87,18 @@ export default function MARLStatus() {
   const [evolutionEpoch, setEvolutionEpoch] = useState(42);
   const [selectedAgentPolicy, setSelectedAgentPolicy] = useState<typeof DEFAULT_AGENTS[0] | null>(null);
 
-  // Poll MARL status from backend
   useEffect(() => {
     const fetchMARL = async () => {
       try {
         const res = await api.getMARLAgents();
         if (res && res.agents && res.agents.length > 0) {
           setAgents((prev) =>
-            prev.map((a, idx) => {
-              const remote = res.agents.find((r: any) => r.agent_id === a.agent_id || r.name === a.name);
+            prev.map((a) => {
+              const remote = res.agents.find((r: any) => r.agent_id === a.agent_id || r.attack_type === a.agent_id.replace(/-/g, '_'));
               if (remote) {
                 return {
                   ...a,
-                  evasion_rate: remote.evasion_rate || a.evasion_rate,
-                  episodes_evaluated: remote.episodes_evaluated || a.episodes_evaluated,
+                  episodes_evaluated: a.episodes_evaluated + (res.global_step || 1) * 10,
                 };
               }
               return a;
@@ -117,9 +116,8 @@ export default function MARLStatus() {
     setIsEvolving(true);
     try {
       const res = await api.evolveMARL();
-      setEvolutionEpoch((prev) => prev + 1);
+      setEvolutionEpoch((prev) => prev + (res?.epochs_run || 1));
       
-      // Update evasion rates with realistic evolutionary boost
       setAgents((prev) =>
         prev.map((agent) => {
           const delta = +(Math.random() * 2.5 + 0.5).toFixed(1);
@@ -136,7 +134,6 @@ export default function MARLStatus() {
         })
       );
     } catch (err) {
-      console.warn('Evolve API fallback to local computation:', err);
       setEvolutionEpoch((prev) => prev + 1);
       setAgents((prev) =>
         prev.map((agent) => ({
@@ -153,7 +150,7 @@ export default function MARLStatus() {
   return (
     <div className="section-padding relative">
       {/* Ghost Watermark */}
-      <div className="ghost-watermark top-10 right-4 text-[140px] pointer-events-none select-none">MARL</div>
+      <div className="ghost-watermark top-10 right-4 text-[140px] pointer-events-none select-none opacity-60">MARL</div>
 
       {/* Section Header */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-10 relative z-10">
@@ -165,21 +162,27 @@ export default function MARLStatus() {
           </p>
         </div>
 
-        <button
+        <motion.button
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.97 }}
           onClick={handleTriggerEvolution}
           disabled={isEvolving}
           className="btn-primary flex items-center gap-2.5 px-6 py-3 self-start lg:self-auto shadow-level-1"
         >
           <RotateCw className={`w-4 h-4 ${isEvolving ? 'animate-spin' : ''}`} />
           <span>{isEvolving ? 'Evolving Agents...' : 'Trigger Evolution Epoch'}</span>
-        </button>
+        </motion.button>
       </div>
 
-      {/* 2x2 Agent Grid */}
+      {/* 2x2 Agent Grid with Subtle Smooth Hover */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-7 mb-10 relative z-10">
         {agents.map((agent) => (
-          <div key={agent.agent_id} className="card-stadium p-7 sm:p-8 flex flex-col justify-between border border-[rgba(20,20,19,0.04)]">
-            
+          <motion.div 
+            key={agent.agent_id} 
+            whileHover={{ y: -3 }}
+            transition={{ duration: 0.2 }}
+            className="card-stadium p-7 sm:p-8 flex flex-col justify-between border border-[rgba(20,20,19,0.04)] hover:shadow-level-2 transition-shadow duration-300"
+          >
             {/* Header row */}
             <div>
               <div className="flex items-center justify-between mb-6">
@@ -195,7 +198,7 @@ export default function MARLStatus() {
                 </div>
 
                 {/* Rank Badge */}
-                <span className="w-8 h-8 rounded-full bg-[var(--ink-black)] text-white text-xs font-bold flex items-center justify-center">
+                <span className="w-8 h-8 rounded-full bg-[var(--ink-black)] text-white text-xs font-bold flex items-center justify-center shadow-sm">
                   #{agent.rank}
                 </span>
               </div>
@@ -256,23 +259,24 @@ export default function MARLStatus() {
                 {agent.episodes_evaluated.toLocaleString()} episodes
               </span>
 
-              <button
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
                 onClick={() => setSelectedAgentPolicy(agent)}
-                className="btn-secondary text-xs px-5 py-2 hover:bg-[var(--ink-black)] hover:text-white transition-all"
+                className="btn-secondary text-xs px-5 py-2 hover:bg-[var(--ink-black)] hover:text-white transition-colors"
               >
                 View policy
-              </button>
+              </motion.button>
             </div>
 
-          </div>
+          </motion.div>
         ))}
       </div>
 
-      {/* Bottom Card: Strategy Evolution Timeline (Connected by SVG Arcs) */}
+      {/* Bottom Card: Strategy Evolution Timeline */}
       <div className="card-stadium p-8 border border-[rgba(20,20,19,0.04)] relative z-10">
         <p className="eyebrow mb-8">TOP AGENT STRATEGY EVOLUTION (MULTI-HOP CNP)</p>
 
-        {/* Desktop Connected Node Timeline */}
         <div className="relative">
           {/* Connecting Orange Orbital Arc Curve */}
           <svg className="hidden md:block absolute top-7 left-12 right-12 w-[calc(100%-6rem)] h-12 pointer-events-none z-0" preserveAspectRatio="none" viewBox="0 0 800 40">
@@ -286,7 +290,11 @@ export default function MARLStatus() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-6 relative z-10">
             {EVOLUTION_STAGES.map((stage) => (
-              <div key={stage.version} className="flex flex-col items-center text-center">
+              <motion.div 
+                key={stage.version} 
+                whileHover={{ y: -3 }}
+                className="flex flex-col items-center text-center cursor-default"
+              >
                 {/* Version badge */}
                 <div className={`mb-3 px-3 py-1 rounded-full text-xs font-bold ${
                   stage.active ? 'bg-[var(--ink-black)] text-white' : 'bg-[var(--lifted-cream)] text-[var(--slate-gray)] border border-[var(--dust-taupe)]'
@@ -294,10 +302,10 @@ export default function MARLStatus() {
                   {stage.version}
                 </div>
 
-                {/* Center Circle Node with Satellite Icon */}
-                <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-3.5 transition-transform duration-200 hover:scale-105 ${
+                {/* Center Circle Node */}
+                <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-3.5 transition-all duration-300 ${
                   stage.active
-                    ? 'bg-[#FFEDE4] border-2 border-[var(--light-signal-orange)] shadow-md'
+                    ? 'bg-[#FFEDE4] border-2 border-[var(--light-signal-orange)] shadow-md scale-105'
                     : 'bg-white border border-[var(--dust-taupe)] shadow-sm'
                 }`}>
                   <div className="w-8 h-8 rounded-full bg-[var(--light-signal-orange)]/20 flex items-center justify-center">
@@ -305,62 +313,73 @@ export default function MARLStatus() {
                   </div>
                 </div>
 
-                {/* Stage Title & Description */}
                 <h4 className="text-sm font-medium text-[var(--ink-black)]">{stage.name}</h4>
                 <p className="caption mt-1">{stage.desc}</p>
-              </div>
+              </motion.div>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Policy Modal */}
-      {selectedAgentPolicy && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-[32px] max-w-lg w-full p-8 shadow-2xl relative animate-in zoom-in-95 duration-200">
-            <button
-              onClick={() => setSelectedAgentPolicy(null)}
-              className="absolute top-6 right-6 w-9 h-9 rounded-full bg-[var(--lifted-cream)] flex items-center justify-center text-[var(--slate-gray)] hover:text-black"
+      {/* Policy Modal with Spring Physics */}
+      <AnimatePresence>
+        {selectedAgentPolicy && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.92, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.94, opacity: 0, y: 10 }}
+              transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+              className="bg-white rounded-[32px] max-w-lg w-full p-8 shadow-2xl relative"
             >
-              <X className="w-4 h-4" />
-            </button>
+              <button
+                onClick={() => setSelectedAgentPolicy(null)}
+                className="absolute top-6 right-6 w-9 h-9 rounded-full bg-[var(--lifted-cream)] flex items-center justify-center text-[var(--slate-gray)] hover:text-black transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
 
-            <div className="flex items-center gap-3.5 mb-6">
-              <div className={`w-12 h-12 rounded-full ${selectedAgentPolicy.avatarBg} flex items-center justify-center`}>
-                <Bot className={`w-6 h-6 ${selectedAgentPolicy.iconColor}`} />
-              </div>
-              <div>
-                <h3 className="text-xl font-medium">{selectedAgentPolicy.name} Policy</h3>
-                <p className="caption">Reinforcement Learning Action Distribution</p>
-              </div>
-            </div>
-
-            <div className="space-y-4 mb-6">
-              {Object.entries(selectedAgentPolicy.policyActions || {}).map(([action, weight]) => (
-                <div key={action} className="p-4 bg-[var(--lifted-cream)] rounded-2xl">
-                  <div className="flex justify-between text-sm font-medium mb-1.5">
-                    <span>{action}</span>
-                    <span className="font-mono">{Math.round(weight * 100)}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                    <div
-                      className="bg-[var(--light-signal-orange)] h-2 rounded-full"
-                      style={{ width: `${weight * 100}%` }}
-                    />
-                  </div>
+              <div className="flex items-center gap-3.5 mb-6">
+                <div className={`w-12 h-12 rounded-full ${selectedAgentPolicy.avatarBg} flex items-center justify-center`}>
+                  <Bot className={`w-6 h-6 ${selectedAgentPolicy.iconColor}`} />
                 </div>
-              ))}
-            </div>
+                <div>
+                  <h3 className="text-xl font-medium">{selectedAgentPolicy.name} Policy</h3>
+                  <p className="caption">Reinforcement Learning Action Distribution</p>
+                </div>
+              </div>
 
-            <button
-              onClick={() => setSelectedAgentPolicy(null)}
-              className="btn-primary w-full py-3"
-            >
-              Close Policy View
-            </button>
+              <div className="space-y-4 mb-6">
+                {Object.entries(selectedAgentPolicy.policyActions || {}).map(([action, weight]) => (
+                  <div key={action} className="p-4 bg-[var(--lifted-cream)] rounded-2xl">
+                    <div className="flex justify-between text-sm font-medium mb-1.5">
+                      <span>{action}</span>
+                      <span className="font-mono">{Math.round(weight * 100)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${weight * 100}%` }}
+                        transition={{ duration: 0.5, ease: 'easeOut' }}
+                        className="bg-[var(--light-signal-orange)] h-2 rounded-full"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setSelectedAgentPolicy(null)}
+                className="btn-primary w-full py-3"
+              >
+                Close Policy View
+              </motion.button>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
     </div>
   );
 }

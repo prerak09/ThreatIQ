@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Square, RotateCcw, Activity } from 'lucide-react';
 import ArenaDashboard, { TabId } from '@/components/ArenaDashboard';
-import { api, DefenseMetrics, Transaction } from '@/lib/api';
+import { api, Transaction } from '@/lib/api';
 import { streamClient } from '@/lib/websocket';
 
 const NAV_TABS: Array<{ id: TabId; label: string }> = [
@@ -41,7 +42,6 @@ export default function Page() {
     });
 
     const unsubTx = streamClient.onTransaction((tx: Transaction) => {
-      // Only increment live metrics if simulation is actively running
       setIsRunning((currentRunning) => {
         if (!currentRunning) return currentRunning;
 
@@ -156,9 +156,9 @@ export default function Page() {
   return (
     <div className="min-h-screen relative overflow-x-hidden">
       {/* Ghost Watermark */}
-      <div className="ghost-watermark top-24 -right-16 text-[180px] select-none">ARENA</div>
+      <div className="ghost-watermark top-24 -right-16 text-[180px] select-none opacity-60">ARENA</div>
 
-      {/* Decorative SVG Orbital Arcs */}
+      {/* Decorative SVG Orbital Arcs with subtle flow animation */}
       <svg className="fixed inset-0 w-full h-full pointer-events-none z-0" xmlns="http://www.w3.org/2000/svg">
         <path
           d="M -100,80 Q 200,30 500,160 T 1200,100 T 1800,240"
@@ -177,61 +177,78 @@ export default function Page() {
         />
       </svg>
 
-      {/* Floating Nav Pill */}
+      {/* Floating Apple-Style Smooth Nav Pill */}
       <header className="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-[1280px] px-4 sm:px-8">
-        <div className="bg-white/95 backdrop-blur-md rounded-full shadow-[0_4px_24px_rgba(0,0,0,0.06)] border border-[rgba(20,20,19,0.06)] px-6 sm:px-8 py-3.5 flex items-center justify-between gap-4">
-          
-          {/* ThreatIQ Logo */}
-          <div className="flex items-center gap-2.5 flex-shrink-0 cursor-pointer" onClick={() => setActiveTab('arena')}>
+        <motion.div 
+          initial={{ y: -20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ type: 'spring', stiffness: 280, damping: 24 }}
+          className="bg-white/90 backdrop-blur-xl rounded-full shadow-[0_8px_32px_rgba(0,0,0,0.06)] border border-[rgba(20,20,19,0.06)] px-5 sm:px-7 py-3 flex items-center justify-between gap-4"
+        >
+          {/* ThreatIQ Brand with Spring Hover */}
+          <motion.div 
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            className="flex items-center gap-2.5 flex-shrink-0 cursor-pointer select-none" 
+            onClick={() => setActiveTab('arena')}
+          >
             <img 
               src="/threatiq-logo.png" 
               alt="ThreatIQ Logo" 
-              className="w-8 h-8 object-contain transition-transform hover:scale-105" 
+              className="w-8 h-8 object-contain" 
             />
             <span className="text-[var(--ink-black)] font-medium text-lg tracking-tight">ThreatIQ</span>
-          </div>
+          </motion.div>
 
-          {/* Center Nav Tab Links */}
-          <nav className="hidden lg:flex items-center gap-1.5 flex-1 justify-center" aria-label="Module Navigation">
+          {/* Center Apple-Style Sliding Pill Tabs */}
+          <nav className="hidden lg:flex items-center gap-1 flex-1 justify-center relative" aria-label="Module Navigation">
             {NAV_TABS.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`px-3.5 py-1.5 rounded-full font-medium text-sm transition-all duration-200 ${
-                    isActive
-                      ? 'bg-[var(--ink-black)] text-white shadow-sm'
-                      : 'text-[var(--ink-black)] hover:bg-[var(--lifted-cream)] hover:text-black'
+                  className={`relative px-3.5 py-1.5 rounded-full font-medium text-sm transition-colors duration-200 z-10 select-none ${
+                    isActive ? 'text-white' : 'text-[var(--ink-black)] hover:text-black'
                   }`}
                   aria-current={isActive ? 'page' : undefined}
                 >
+                  {/* Apple Smooth Sliding Pill Indicator */}
+                  {isActive && (
+                    <motion.div
+                      layoutId="nav-active-pill"
+                      className="absolute inset-0 bg-[var(--ink-black)] rounded-full -z-10 shadow-sm"
+                      transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+                    />
+                  )}
                   {tab.label}
                 </button>
               );
             })}
           </nav>
 
-          {/* Right Status Indicator + Reset */}
+          {/* Right Status Indicator + Smooth Action Buttons */}
           <div className="flex items-center gap-3 flex-shrink-0">
-            <div className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider transition-colors ${
+            <div className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider transition-colors duration-300 ${
               isConnected ? 'bg-[var(--success-tint)] text-[var(--success-green)]' : 'bg-gray-100 text-gray-500'
             }`}>
               <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-[var(--success-green)] animate-pulse' : 'bg-gray-400'}`} />
               {isConnected ? 'LIVE' : 'OFFLINE'}
             </div>
 
-            <button
+            <motion.button
+              whileHover={{ scale: 1.08, rotate: -45 }}
+              whileTap={{ scale: 0.92 }}
               onClick={handleReset}
               disabled={loadingAction}
-              className="w-10 h-10 rounded-full border border-[var(--dust-taupe)] bg-white flex items-center justify-center hover:bg-[var(--canvas-cream)] transition-all active:scale-95 disabled:opacity-50"
+              className="w-10 h-10 rounded-full border border-[var(--dust-taupe)] bg-white flex items-center justify-center hover:bg-[var(--canvas-cream)] transition-colors shadow-sm disabled:opacity-50"
               title="Reset simulation counters"
               aria-label="Reset simulation"
             >
               <RotateCcw className={`w-4 h-4 text-[var(--ink-black)] ${loadingAction ? 'animate-spin' : ''}`} />
-            </button>
+            </motion.button>
           </div>
-        </div>
+        </motion.div>
       </header>
 
       {/* Main Content Area */}
@@ -241,20 +258,26 @@ export default function Page() {
           {/* Hero Section */}
           <section className="mb-10 relative pt-6">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
-              <div>
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+              >
                 <p className="eyebrow">AUTONOMOUS ADVERSARIAL SIMULATION</p>
                 <h1 className="mt-2.5">ThreatIQ</h1>
                 <p className="subline mt-2.5 max-w-2xl text-[17px]">
                   Enterprise AI Red Team / Blue Team Payment Fraud Simulation
                 </p>
-              </div>
+              </motion.div>
 
               {/* Action Cluster (Start Button + Running Pulse Widget) */}
               <div className="flex items-center gap-5 flex-wrap">
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
                   onClick={handleToggleSimulation}
                   disabled={loadingAction}
-                  className={`${isRunning ? 'btn-stop' : 'btn-primary'} text-lg px-8 py-3.5 shadow-level-1`}
+                  className={`${isRunning ? 'btn-stop' : 'btn-primary'} text-lg px-8 py-3.5 shadow-level-1 transition-all`}
                 >
                   {isRunning ? (
                     <>
@@ -265,37 +288,71 @@ export default function Page() {
                       <Play className="w-5 h-5 fill-current" /> Start Simulation
                     </>
                   )}
-                </button>
+                </motion.button>
 
                 {/* Animated Status Circle Satellite Widget */}
-                <div className="card-white-pill px-5 py-2.5 flex items-center gap-3 border border-[rgba(20,20,19,0.06)]">
+                <motion.div 
+                  whileHover={{ scale: 1.02 }}
+                  className="card-white-pill px-5 py-2.5 flex items-center gap-3 border border-[rgba(20,20,19,0.06)] shadow-sm"
+                >
                   <div className="relative w-8 h-8 flex items-center justify-center">
-                    <div className={`w-3.5 h-3.5 rounded-full ${isRunning ? 'bg-[var(--success-green)] animate-ping absolute' : ''}`} />
-                    <div className={`w-3.5 h-3.5 rounded-full ${isRunning ? 'bg-[var(--success-green)]' : 'bg-[var(--dust-taupe)]'}`} />
+                    <AnimatePresence>
+                      {isRunning && (
+                        <motion.div
+                          initial={{ scale: 0.8, opacity: 0 }}
+                          animate={{ scale: 1.6, opacity: 0.4 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ repeat: Infinity, duration: 1.8, ease: 'easeOut' }}
+                          className="w-3.5 h-3.5 rounded-full bg-[var(--success-green)] absolute"
+                        />
+                      )}
+                    </AnimatePresence>
+                    <div className={`w-3.5 h-3.5 rounded-full transition-colors duration-300 ${isRunning ? 'bg-[var(--success-green)]' : 'bg-[var(--dust-taupe)]'}`} />
                   </div>
                   <div className="text-left">
                     <p className="text-xs font-bold tracking-wider uppercase text-[var(--slate-gray)]">STATUS</p>
                     <p className="text-sm font-medium text-[var(--ink-black)]">{isRunning ? 'Running' : 'Standby'}</p>
                   </div>
-                </div>
+                </motion.div>
               </div>
             </div>
           </section>
 
-          {/* 5-Column Stats Stadium Card */}
-          <div className="card-stadium p-6 sm:p-8 mb-12 border border-[rgba(20,20,19,0.04)]" role="region" aria-label="Live Simulation Statistics">
+          {/* 5-Column Stats Stadium Card with subtle lift */}
+          <motion.div 
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.1 }}
+            className="card-stadium p-6 sm:p-8 mb-12 border border-[rgba(20,20,19,0.04)] hover:shadow-level-2 transition-shadow duration-300" 
+            role="region" 
+            aria-label="Live Simulation Statistics"
+          >
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6 sm:gap-8 items-center text-center">
               
               {/* Total Attacks */}
               <div className="flex flex-col items-center">
                 <span className="stat-label">TOTAL ATTACKS</span>
-                <span className="stat-value-xl text-[var(--danger-red)] mt-1.5">{totalAttacks.toLocaleString()}</span>
+                <motion.span 
+                  key={totalAttacks}
+                  initial={{ scale: 1.05 }}
+                  animate={{ scale: 1 }}
+                  className="stat-value-xl text-[var(--danger-red)] mt-1.5"
+                >
+                  {totalAttacks.toLocaleString()}
+                </motion.span>
               </div>
 
               {/* Detected */}
               <div className="flex flex-col items-center border-l sm:border-l border-[var(--dust-taupe)]/40 pl-4 sm:pl-8">
                 <span className="stat-label">DETECTED</span>
-                <span className="stat-value-xl text-[var(--success-green)] mt-1.5">{detectedCount.toLocaleString()}</span>
+                <motion.span 
+                  key={detectedCount}
+                  initial={{ scale: 1.05 }}
+                  animate={{ scale: 1 }}
+                  className="stat-value-xl text-[var(--success-green)] mt-1.5"
+                >
+                  {detectedCount.toLocaleString()}
+                </motion.span>
               </div>
 
               {/* Detection Rate */}
@@ -317,7 +374,7 @@ export default function Page() {
               </div>
 
             </div>
-          </div>
+          </motion.div>
 
           {/* Module Tabs and Arena Dashboard Views */}
           <ArenaDashboard 

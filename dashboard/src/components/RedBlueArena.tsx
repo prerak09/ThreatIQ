@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ShieldAlert, 
   ShieldCheck, 
@@ -101,7 +102,6 @@ export default function RedBlueArena({
   const [selectedTxPayload, setSelectedTxPayload] = useState<Transaction | null>(null);
   const [threshold, setThreshold] = useState(0.75);
 
-  // Subscribe to live transactions
   useEffect(() => {
     const unsub = streamClient.onTransaction((tx) => {
       if (isRunning) {
@@ -147,7 +147,6 @@ export default function RedBlueArena({
       }
     } catch (err) {
       console.warn('Attack injection fallback:', err);
-      // Fallback local injection
       const mock: Transaction = {
         id: `TXN-${Date.now().toString(36).toUpperCase()}`,
         amount: Math.round(Math.random() * 8000 + 500),
@@ -169,22 +168,17 @@ export default function RedBlueArena({
     }
   };
 
-  const handleUpdateThreshold = async (newVal: number) => {
-    setThreshold(newVal);
-    try {
-      await api.updateThreshold(newVal);
-    } catch (e) {
-      // ignore
-    }
-  };
-
   const redAttacks = transactions.filter((t) => t.is_fraud || t.attack_type !== 'Normal Payment');
   const blueDefenses = transactions;
 
   return (
     <div className="section-padding relative">
       {/* Quick Attack Injector Control Bar */}
-      <div className="card-stadium p-6 sm:p-8 mb-10 border border-[rgba(20,20,19,0.04)]">
+      <motion.div 
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="card-stadium p-6 sm:p-8 mb-10 border border-[rgba(20,20,19,0.04)] shadow-level-1"
+      >
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div>
             <p className="eyebrow">RED TEAM ADVERSARIAL INJECTOR</p>
@@ -195,7 +189,7 @@ export default function RedBlueArena({
             <select
               value={selectedAttack}
               onChange={(e) => setSelectedAttack(e.target.value)}
-              className="px-4 py-2.5 rounded-full bg-[var(--lifted-cream)] border border-[var(--dust-taupe)] text-sm font-medium text-[var(--ink-black)] focus:outline-none"
+              className="px-4 py-2.5 rounded-full bg-[var(--lifted-cream)] border border-[var(--dust-taupe)] text-sm font-medium text-[var(--ink-black)] focus:outline-none transition-colors hover:border-black/30"
             >
               {ATTACK_VECTORS.map((atk) => (
                 <option key={atk.id} value={atk.id}>{atk.name}</option>
@@ -205,33 +199,35 @@ export default function RedBlueArena({
             <select
               value={injectCount}
               onChange={(e) => setInjectCount(Number(e.target.value))}
-              className="px-4 py-2.5 rounded-full bg-[var(--lifted-cream)] border border-[var(--dust-taupe)] text-sm font-medium text-[var(--ink-black)] focus:outline-none"
+              className="px-4 py-2.5 rounded-full bg-[var(--lifted-cream)] border border-[var(--dust-taupe)] text-sm font-medium text-[var(--ink-black)] focus:outline-none transition-colors hover:border-black/30"
             >
               <option value={1}>1 Vector</option>
               <option value={5}>5 Vectors (Burst)</option>
               <option value={20}>20 Vectors (Swarm)</option>
             </select>
 
-            <button
+            <motion.button
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.96 }}
               onClick={handleInjectAttack}
               disabled={isInjecting}
               className="btn-primary text-sm px-6 py-2.5 shadow-sm"
             >
               <Zap className="w-4 h-4 text-[var(--light-signal-orange)]" />
               <span>{isInjecting ? 'Injecting...' : 'Launch Attack'}</span>
-            </button>
+            </motion.button>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Dual Column: Red Team (Attacks) vs Blue Team (Detection) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
         
         {/* Red Team Column */}
-        <div className="card-stadium p-7 sm:p-8 border border-[rgba(20,20,19,0.04)]">
+        <div className="card-stadium p-7 sm:p-8 border border-[rgba(20,20,19,0.04)] shadow-level-1">
           <div className="flex items-center justify-between mb-6 pb-4 border-b border-[var(--dust-taupe)]/40">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#FEEAE8] flex items-center justify-center">
+              <div className="w-10 h-10 rounded-full bg-[#FEEAE8] flex items-center justify-center shadow-sm">
                 <ShieldAlert className="w-5 h-5 text-[var(--danger-red)]" />
               </div>
               <div>
@@ -244,40 +240,50 @@ export default function RedBlueArena({
             </span>
           </div>
 
-          <div className="space-y-3.5 max-h-[500px] overflow-y-auto pr-2">
+          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
             {redAttacks.length === 0 ? (
               <p className="text-center py-16 text-[var(--slate-gray)]">No active attacks in stream. Launch an attack above.</p>
             ) : (
-              redAttacks.map((tx) => (
-                <div key={tx.id} className="p-4 bg-[var(--lifted-cream)] rounded-2xl border border-[rgba(20,20,19,0.04)] flex items-center justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold text-sm text-[var(--ink-black)]">{tx.id}</span>
-                      <span className="status-chip danger text-[10px]">ATTACK</span>
-                    </div>
-                    <p className="caption text-xs">
-                      {tx.attack_type} · {tx.currency || 'USD'} {tx.amount.toLocaleString()} · card ****{tx.card_last4 || '4521'}
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={() => setSelectedTxPayload(tx)}
-                    className="satellite-btn !w-9 !h-9"
-                    title="Inspect ISO20022 message payload"
+              <AnimatePresence initial={false}>
+                {redAttacks.map((tx) => (
+                  <motion.div 
+                    key={tx.id}
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="p-4 bg-[var(--lifted-cream)] rounded-2xl border border-[rgba(20,20,19,0.04)] flex items-center justify-between gap-4 hover:bg-white transition-colors shadow-sm"
                   >
-                    <Code className="w-4 h-4 text-[var(--slate-gray)]" />
-                  </button>
-                </div>
-              ))
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-sm text-[var(--ink-black)]">{tx.id}</span>
+                        <span className="status-chip danger text-[10px]">ATTACK</span>
+                      </div>
+                      <p className="caption text-xs">
+                        {tx.attack_type} · {tx.currency || 'USD'} {tx.amount.toLocaleString()} · card ****{tx.card_last4 || '4521'}
+                      </p>
+                    </div>
+
+                    <motion.button
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => setSelectedTxPayload(tx)}
+                      className="satellite-btn !w-9 !h-9"
+                      title="Inspect ISO20022 message payload"
+                    >
+                      <Code className="w-4 h-4 text-[var(--slate-gray)]" />
+                    </motion.button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             )}
           </div>
         </div>
 
         {/* Blue Team Column */}
-        <div className="card-stadium p-7 sm:p-8 border border-[rgba(20,20,19,0.04)]">
+        <div className="card-stadium p-7 sm:p-8 border border-[rgba(20,20,19,0.04)] shadow-level-1">
           <div className="flex items-center justify-between mb-6 pb-4 border-b border-[var(--dust-taupe)]/40">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#EBF3FE] flex items-center justify-center">
+              <div className="w-10 h-10 rounded-full bg-[#EBF3FE] flex items-center justify-center shadow-sm">
                 <ShieldCheck className="w-5 h-5 text-[var(--link-blue)]" />
               </div>
               <div>
@@ -290,84 +296,104 @@ export default function RedBlueArena({
             </span>
           </div>
 
-          <div className="space-y-3.5 max-h-[500px] overflow-y-auto pr-2">
+          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
             {blueDefenses.length === 0 ? (
               <p className="text-center py-16 text-[var(--slate-gray)]">No decisions yet.</p>
             ) : (
-              blueDefenses.map((tx) => {
-                const isDetected = tx.status === 'detected' || tx.status === 'blocked';
-                return (
-                  <div key={tx.id} className="p-4 bg-[var(--lifted-cream)] rounded-2xl border border-[rgba(20,20,19,0.04)] flex items-center justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-semibold text-sm text-[var(--ink-black)]">{tx.id}</span>
-                        <span className={`status-chip text-[10px] ${isDetected ? 'danger' : 'success'}`}>
-                          {isDetected ? 'BLOCKED' : 'CLEARED'}
-                        </span>
-                        <span className="caption font-mono text-[11px]">
-                          {Math.round((tx.blue_team_confidence || 0.85) * 100)}% conf
-                        </span>
-                      </div>
-                      <p className="caption text-xs">
-                        Channel: {tx.channel || 'tokenized'} · Latency {tx.blue_team_result?.latency_ms || 11.2}ms
-                      </p>
-                    </div>
-
-                    <button
-                      onClick={() => setSelectedTxPayload(tx)}
-                      className="satellite-btn !w-9 !h-9"
-                      title="View Decision & SHAP"
+              <AnimatePresence initial={false}>
+                {blueDefenses.map((tx) => {
+                  const isDetected = tx.status === 'detected' || tx.status === 'blocked';
+                  return (
+                    <motion.div 
+                      key={tx.id} 
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="p-4 bg-[var(--lifted-cream)] rounded-2xl border border-[rgba(20,20,19,0.04)] flex items-center justify-between gap-4 hover:bg-white transition-colors shadow-sm"
                     >
-                      <Eye className="w-4 h-4 text-[var(--slate-gray)]" />
-                    </button>
-                  </div>
-                );
-              })
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold text-sm text-[var(--ink-black)]">{tx.id}</span>
+                          <span className={`status-chip text-[10px] ${isDetected ? 'danger' : 'success'}`}>
+                            {isDetected ? 'BLOCKED' : 'CLEARED'}
+                          </span>
+                          <span className="caption font-mono text-[11px]">
+                            {Math.round((tx.blue_team_confidence || 0.85) * 100)}% conf
+                          </span>
+                        </div>
+                        <p className="caption text-xs">
+                          Channel: {tx.channel || 'tokenized'} · Latency {tx.blue_team_result?.latency_ms || 11.2}ms
+                        </p>
+                      </div>
+
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => setSelectedTxPayload(tx)}
+                        className="satellite-btn !w-9 !h-9"
+                        title="View Decision & SHAP"
+                      >
+                        <Eye className="w-4 h-4 text-[var(--slate-gray)]" />
+                      </motion.button>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
             )}
           </div>
         </div>
 
       </div>
 
-      {/* Transaction ISO 20022 & Decision Inspector Modal */}
-      {selectedTxPayload && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-[32px] max-w-xl w-full p-8 shadow-2xl relative animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <span className="eyebrow">ISO 20022 TELEMETRY</span>
-                <h3 className="text-xl font-medium mt-1">{selectedTxPayload.id}</h3>
-              </div>
-              <button
-                onClick={() => setSelectedTxPayload(null)}
-                className="w-9 h-9 rounded-full bg-[var(--lifted-cream)] flex items-center justify-center text-[var(--slate-gray)] hover:text-black"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-4 mb-6 text-sm">
-              <div className="p-4 bg-[var(--lifted-cream)] rounded-2xl space-y-2">
-                <div className="flex justify-between"><span className="text-[var(--slate-gray)]">Amount:</span> <span className="font-semibold">{selectedTxPayload.currency || 'USD'} {selectedTxPayload.amount.toFixed(2)}</span></div>
-                <div className="flex justify-between"><span className="text-[var(--slate-gray)]">Attack Vector:</span> <span className="font-semibold text-[var(--danger-red)]">{selectedTxPayload.attack_type}</span></div>
-                <div className="flex justify-between"><span className="text-[var(--slate-gray)]">Ensemble Confidence:</span> <span className="font-semibold text-[var(--link-blue)]">{Math.round((selectedTxPayload.blue_team_confidence || 0.88) * 100)}%</span></div>
-                <div className="flex justify-between"><span className="text-[var(--slate-gray)]">ISO Standard:</span> <span className="font-mono">pacs.008.001.08 (Mastercard SEPA)</span></div>
-              </div>
-
-              <div className="p-4 bg-gray-900 text-green-400 font-mono text-xs rounded-2xl overflow-x-auto">
-                <pre>{JSON.stringify(selectedTxPayload.blue_team_result || selectedTxPayload, null, 2)}</pre>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setSelectedTxPayload(null)}
-              className="btn-primary w-full py-3"
+      {/* Transaction ISO 20022 & Decision Inspector Modal with Spring Physics */}
+      <AnimatePresence>
+        {selectedTxPayload && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.92, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.94, opacity: 0, y: 10 }}
+              transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+              className="bg-white rounded-[32px] max-w-xl w-full p-8 shadow-2xl relative"
             >
-              Close Inspector
-            </button>
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <span className="eyebrow">ISO 20022 TELEMETRY</span>
+                  <h3 className="text-xl font-medium mt-1">{selectedTxPayload.id}</h3>
+                </div>
+                <button
+                  onClick={() => setSelectedTxPayload(null)}
+                  className="w-9 h-9 rounded-full bg-[var(--lifted-cream)] flex items-center justify-center text-[var(--slate-gray)] hover:text-black transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-4 mb-6 text-sm">
+                <div className="p-4 bg-[var(--lifted-cream)] rounded-2xl space-y-2">
+                  <div className="flex justify-between"><span className="text-[var(--slate-gray)]">Amount:</span> <span className="font-semibold">{selectedTxPayload.currency || 'USD'} {selectedTxPayload.amount.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="text-[var(--slate-gray)]">Attack Vector:</span> <span className="font-semibold text-[var(--danger-red)]">{selectedTxPayload.attack_type}</span></div>
+                  <div className="flex justify-between"><span className="text-[var(--slate-gray)]">Ensemble Confidence:</span> <span className="font-semibold text-[var(--link-blue)]">{Math.round((selectedTxPayload.blue_team_confidence || 0.88) * 100)}%</span></div>
+                  <div className="flex justify-between"><span className="text-[var(--slate-gray)]">ISO Standard:</span> <span className="font-mono">pacs.008.001.08 (Mastercard SEPA)</span></div>
+                </div>
+
+                <div className="p-4 bg-gray-900 text-green-400 font-mono text-xs rounded-2xl overflow-x-auto">
+                  <pre>{JSON.stringify(selectedTxPayload.blue_team_result || selectedTxPayload, null, 2)}</pre>
+                </div>
+              </div>
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setSelectedTxPayload(null)}
+                className="btn-primary w-full py-3"
+              >
+                Close Inspector
+              </motion.button>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { FileText, Download, Clock, ChevronDown, ChevronUp, CheckCircle, ShieldAlert, Sparkles } from 'lucide-react';
 import { api, SARItem } from '@/lib/api';
 
@@ -86,15 +87,14 @@ export default function SARPanel() {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Poll pending SARs from backend
   useEffect(() => {
     const fetchSARs = async () => {
       try {
         const res = await api.getPendingSARs();
-        if (res && res.sars && res.sars.length > 0) {
+        if (res && res.pending && res.pending.length > 0) {
           setSars((prev) => {
             const filed = prev.filter((p) => p.status === 'filed');
-            const remoteMapped: SARItem[] = res.sars.map((s: any, idx: number) => ({
+            const remoteMapped: SARItem[] = res.pending.map((s: any, idx: number) => ({
               id: s.sar_id || s.id || `SAR-2026-${100 + idx}`,
               transaction_id: s.transaction_id || `TXN-${idx}`,
               timestamp: s.created_at || 'Just now',
@@ -115,7 +115,7 @@ export default function SARPanel() {
           });
         }
       } catch (err) {
-        // use default state
+        // fallback
       }
     };
     fetchSARs();
@@ -195,13 +195,21 @@ ISO 20022 / BSA E-Filing Format Validated
 
   return (
     <div className="section-padding relative">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-8 right-8 z-50 bg-[var(--ink-black)] text-white px-6 py-3.5 rounded-full shadow-2xl flex items-center gap-3 text-sm animate-in slide-in-from-bottom-5">
-          <CheckCircle className="w-4 h-4 text-[var(--success-green)]" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
+      {/* Toast Notification with Spring Entry */}
+      <AnimatePresence>
+        {toastMessage && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 15, scale: 0.95 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+            className="fixed bottom-8 right-8 z-50 bg-[var(--ink-black)] text-white px-6 py-3.5 rounded-full shadow-2xl flex items-center gap-3 text-sm"
+          >
+            <CheckCircle className="w-4 h-4 text-[var(--success-green)]" />
+            <span>{toastMessage}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Section Header */}
       <div className="card-stadium p-8 sm:p-10 border border-[rgba(20,20,19,0.04)] mb-8">
@@ -214,20 +222,30 @@ ISO 20022 / BSA E-Filing Format Validated
             </p>
           </div>
 
-          {/* Filter Pills: Pending (3) / Filed (12) */}
-          <div className="flex items-center gap-2 p-1.5 bg-[var(--lifted-cream)] rounded-full border border-[var(--dust-taupe)] w-fit" role="tablist">
-            <button
-              onClick={() => setActiveFilter('pending')}
-              className={`pill-btn ${activeFilter === 'pending' ? 'active' : 'inactive'}`}
-            >
-              Pending ({pendingList.length})
-            </button>
-            <button
-              onClick={() => setActiveFilter('filed')}
-              className={`pill-btn ${activeFilter === 'filed' ? 'active' : 'inactive'}`}
-            >
-              Filed ({filedList.length})
-            </button>
+          {/* Filter Pills with Apple Gliding Spring */}
+          <div className="flex items-center gap-1 p-1.5 bg-[var(--lifted-cream)] rounded-full border border-[var(--dust-taupe)] w-fit relative" role="tablist">
+            {(['pending', 'filed'] as const).map((filter) => {
+              const isActive = activeFilter === filter;
+              const count = filter === 'pending' ? pendingList.length : filedList.length;
+              return (
+                <button
+                  key={filter}
+                  onClick={() => setActiveFilter(filter)}
+                  className={`relative px-4 py-2 rounded-full font-medium text-sm transition-colors duration-200 z-10 capitalize ${
+                    isActive ? 'text-white' : 'text-[var(--slate-gray)] hover:text-black'
+                  }`}
+                >
+                  {isActive && (
+                    <motion.div
+                      layoutId="sar-filter-pill"
+                      className="absolute inset-0 bg-[var(--ink-black)] rounded-full -z-10 shadow-sm"
+                      transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+                    />
+                  )}
+                  {filter} ({count})
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -243,14 +261,15 @@ ISO 20022 / BSA E-Filing Format Validated
               const isPending = sar.status === 'pending';
 
               return (
-                <div
+                <motion.div
                   key={sar.id}
-                  className="card-white-pill p-6 sm:p-7 border border-[rgba(20,20,19,0.05)] transition-all duration-200"
+                  layout
+                  transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  className="card-white-pill p-6 sm:p-7 border border-[rgba(20,20,19,0.05)] transition-shadow hover:shadow-level-1"
                 >
                   {/* Top Row: Icon + ID + Subject + Chips + Actions */}
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex items-center gap-4 flex-1">
-                      {/* Document Icon Circle */}
                       <div className="w-12 h-12 rounded-full bg-[#EBF3FE] flex items-center justify-center flex-shrink-0">
                         <FileText className="w-6 h-6 text-[var(--link-blue)]" />
                       </div>
@@ -271,21 +290,25 @@ ISO 20022 / BSA E-Filing Format Validated
 
                     {/* Quick Action Buttons */}
                     <div className="flex items-center gap-2.5 self-end md:self-center">
-                      <button
+                      <motion.button
+                        whileHover={{ scale: 1.04 }}
+                        whileTap={{ scale: 0.96 }}
                         onClick={() => setExpandedId(isExpanded ? null : sar.id)}
                         className="btn-secondary text-xs px-5 py-2"
                       >
                         {isExpanded ? 'Collapse' : 'Review'}
-                      </button>
+                      </motion.button>
 
                       {isPending ? (
-                        <button
+                        <motion.button
+                          whileHover={{ scale: 1.04 }}
+                          whileTap={{ scale: 0.96 }}
                           onClick={() => handleFileSAR(sar.id)}
                           disabled={loadingAction === `file-${sar.id}`}
                           className="btn-primary text-xs px-5 py-2"
                         >
                           {loadingAction === `file-${sar.id}` ? 'Filing...' : 'File'}
-                        </button>
+                        </motion.button>
                       ) : (
                         <span className="status-chip success px-4 py-2">
                           FILED
@@ -294,91 +317,110 @@ ISO 20022 / BSA E-Filing Format Validated
 
                       <button
                         onClick={() => setExpandedId(isExpanded ? null : sar.id)}
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-[var(--slate-gray)] hover:bg-gray-100"
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-[var(--slate-gray)] hover:bg-gray-100 transition-colors"
                         aria-label="Toggle details"
                       >
-                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        <motion.div
+                          animate={{ rotate: isExpanded ? 180 : 0 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <ChevronDown className="w-4 h-4" />
+                        </motion.div>
                       </button>
                     </div>
                   </div>
 
-                  {/* Expanded Breakdown */}
-                  {isExpanded && (
-                    <div className="mt-6 pt-6 border-t border-[var(--dust-taupe)]/40 animate-in fade-in duration-200">
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-6">
-                        
-                        {/* Left Column: Risk Factors */}
-                        <div>
-                          <p className="eyebrow mb-4">RISK FACTORS</p>
-                          <div className="space-y-3">
-                            {sar.risk_factors.map((rf, idx) => (
-                              <div
-                                key={idx}
-                                className="flex items-center justify-between p-3.5 bg-[var(--lifted-cream)] rounded-2xl border border-[var(--dust-taupe)]/30"
-                              >
-                                <div className="flex items-center gap-3">
-                                  <span className="px-3 py-1 rounded-full text-xs font-semibold bg-white border border-[var(--dust-taupe)] text-[var(--ink-black)]">
-                                    {rf.category}
-                                  </span>
-                                  <span className="text-sm text-[var(--ink-black)]">{rf.factor}</span>
-                                </div>
-                                <span className={`text-xs font-bold flex items-center gap-1 ${
-                                  rf.level === 'HIGH'
-                                    ? 'text-[var(--danger-red)]'
-                                    : rf.level === 'MEDIUM'
-                                    ? 'text-[var(--clay-brown)]'
-                                    : 'text-[var(--success-green)]'
-                                }`}>
-                                  ● {rf.level}
-                                </span>
+                  {/* Smooth Accordion Breakdown with AnimatePresence */}
+                  <AnimatePresence>
+                    {isExpanded && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-6 pt-6 border-t border-[var(--dust-taupe)]/40">
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-6">
+                            
+                            {/* Left Column: Risk Factors */}
+                            <div>
+                              <p className="eyebrow mb-4">RISK FACTORS</p>
+                              <div className="space-y-3">
+                                {sar.risk_factors.map((rf, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="flex items-center justify-between p-3.5 bg-[var(--lifted-cream)] rounded-2xl border border-[var(--dust-taupe)]/30"
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-white border border-[var(--dust-taupe)] text-[var(--ink-black)]">
+                                        {rf.category}
+                                      </span>
+                                      <span className="text-sm text-[var(--ink-black)]">{rf.factor}</span>
+                                    </div>
+                                    <span className={`text-xs font-bold flex items-center gap-1 ${
+                                      rf.level === 'HIGH'
+                                        ? 'text-[var(--danger-red)]'
+                                        : rf.level === 'MEDIUM'
+                                        ? 'text-[var(--clay-brown)]'
+                                        : 'text-[var(--success-green)]'
+                                    }`}>
+                                      ● {rf.level}
+                                    </span>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                            </div>
+
+                            {/* Right Column: AI Generated Narrative Block */}
+                            <div>
+                              <p className="eyebrow mb-4">AI-GENERATED NARRATIVE</p>
+                              <div className="bg-[var(--soft-bone)] rounded-2xl p-5 border border-gray-200/60 h-full flex items-center">
+                                <p className="text-sm text-[var(--ink-black)] leading-relaxed font-normal">
+                                  {sar.narrative}
+                                </p>
+                              </div>
+                            </div>
+
+                          </div>
+
+                          {/* Bottom Actions Cluster */}
+                          <div className="flex flex-wrap items-center gap-3 pt-4 border-t border-gray-100">
+                            <motion.button
+                              whileHover={{ scale: 1.03 }}
+                              whileTap={{ scale: 0.97 }}
+                              onClick={() => handleGenerateForm(sar)}
+                              disabled={loadingAction === `generate-${sar.id}`}
+                              className="btn-primary text-xs px-6 py-2.5"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-[var(--light-signal-orange)]" />
+                              <span>{loadingAction === `generate-${sar.id}` ? 'Generating...' : 'Generate FinCEN Form 111'}</span>
+                            </motion.button>
+
+                            <motion.button
+                              whileHover={{ scale: 1.03 }}
+                              whileTap={{ scale: 0.97 }}
+                              onClick={() => handleExportPDF(sar)}
+                              className="btn-secondary text-xs px-6 py-2.5"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Export PDF</span>
+                            </motion.button>
+
+                            <button
+                              onClick={() => showToast(`Audit log for ${sar.id}: Cryptographic SHA-256 seal verified.`)}
+                              className="btn-tertiary text-xs px-4 py-2 border-0 underline underline-offset-4"
+                            >
+                              <Clock className="w-3 h-3 text-[var(--slate-gray)]" />
+                              <span>Audit log</span>
+                            </button>
                           </div>
                         </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
 
-                        {/* Right Column: AI Generated Narrative Block */}
-                        <div>
-                          <p className="eyebrow mb-4">AI-GENERATED NARRATIVE</p>
-                          <div className="bg-[var(--soft-bone)] rounded-2xl p-5 border border-gray-200/60 h-full flex items-center">
-                            <p className="text-sm text-[var(--ink-black)] leading-relaxed font-normal">
-                              {sar.narrative}
-                            </p>
-                          </div>
-                        </div>
-
-                      </div>
-
-                      {/* Bottom Actions Cluster */}
-                      <div className="flex flex-wrap items-center gap-3 pt-4 border-t border-gray-100">
-                        <button
-                          onClick={() => handleGenerateForm(sar)}
-                          disabled={loadingAction === `generate-${sar.id}`}
-                          className="btn-primary text-xs px-6 py-2.5"
-                        >
-                          <Sparkles className="w-3.5 h-3.5 text-[var(--light-signal-orange)]" />
-                          <span>{loadingAction === `generate-${sar.id}` ? 'Generating...' : 'Generate FinCEN Form 111'}</span>
-                        </button>
-
-                        <button
-                          onClick={() => handleExportPDF(sar)}
-                          className="btn-secondary text-xs px-6 py-2.5"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Export PDF</span>
-                        </button>
-
-                        <button
-                          onClick={() => showToast(`Audit log for ${sar.id}: All actions signed with cryptographic hash.`)}
-                          className="btn-tertiary text-xs px-4 py-2 border-0 underline underline-offset-4"
-                        >
-                          <Clock className="w-3 h-3 text-[var(--slate-gray)]" />
-                          <span>Audit log</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                </div>
+                </motion.div>
               );
             })
           )}

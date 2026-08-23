@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Shield, 
   Network, 
@@ -60,10 +61,10 @@ export default function ArenaDashboard({
 }: ArenaDashboardProps) {
   return (
     <div className="w-full">
-      {/* Tab Navigation Pill Bar */}
+      {/* Tab Navigation Pill Bar with Apple Sliding Spring */}
       <div className="mb-10 flex items-center justify-center">
         <div 
-          className="flex items-center gap-1.5 bg-white p-2 rounded-full shadow-level-1 border border-[rgba(20,20,19,0.06)] overflow-x-auto max-w-full" 
+          className="flex items-center gap-1 bg-white/95 backdrop-blur-md p-1.5 rounded-full shadow-level-1 border border-[rgba(20,20,19,0.06)] overflow-x-auto max-w-full" 
           role="tablist" 
           aria-label="Dashboard Modules"
         >
@@ -78,13 +79,27 @@ export default function ArenaDashboard({
                 aria-controls={`${tab.id}-panel`}
                 id={`${tab.id}-tab`}
                 onClick={() => onSelectTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-full font-medium text-sm whitespace-nowrap transition-all duration-200 ${
+                className={`relative flex items-center gap-2 px-4 py-2.5 rounded-full font-medium text-sm whitespace-nowrap transition-colors duration-200 select-none z-10 ${
                   isActive
-                    ? 'bg-[var(--ink-black)] text-white shadow-level-1'
-                    : 'text-[var(--slate-gray)] hover:text-[var(--ink-black)] hover:bg-[var(--lifted-cream)]'
+                    ? 'text-white'
+                    : 'text-[var(--slate-gray)] hover:text-[var(--ink-black)]'
                 }`}
               >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-[var(--light-signal-orange)]' : 'text-current'}`} aria-hidden="true" />
+                {/* Apple Gliding Pill Indicator */}
+                {isActive && (
+                  <motion.div
+                    layoutId="module-active-pill"
+                    className="absolute inset-0 bg-[var(--ink-black)] rounded-full -z-10 shadow-sm"
+                    transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                  />
+                )}
+
+                <Icon 
+                  className={`w-4 h-4 transition-colors ${
+                    isActive ? 'text-[var(--light-signal-orange)]' : 'text-current'
+                  }`} 
+                  aria-hidden="true" 
+                />
                 <span>{tab.label}</span>
               </button>
             );
@@ -92,33 +107,39 @@ export default function ArenaDashboard({
         </div>
       </div>
 
-      {/* Tab Panel Viewports */}
+      {/* Tab Panel Viewports with Smooth Cross-Fade Animation */}
       <div className="relative">
-        <div
-          role="tabpanel"
-          id={`${activeTab}-panel`}
-          aria-labelledby={`${activeTab}-tab`}
-          className="animate-in fade-in duration-300"
-        >
-          {activeTab === 'arena' && (
-            <RedBlueArena 
-              isRunning={isRunning} 
-              isConnected={isConnected}
-              onStart={onStart}
-              onStop={onStop}
-              onAttackInjected={onAttackInjected}
-            />
-          )}
-          {activeTab === 'topology' && <TopologyGraph />}
-          {activeTab === 'marl' && <MARLStatus />}
-          {activeTab === 'xai' && <ExplainabilityPanel />}
-          {activeTab === 'steering' && <SteeringPanel />}
-          {activeTab === 'constraints' && <ConstraintPanel />}
-          {activeTab === 'federated' && <FederatedLearningPanel />}
-          {activeTab === 'game' && <GameTheoryPanel />}
-          {activeTab === 'zkp' && <ZKPPanel />}
-          {activeTab === 'sar' && <SARPanel />}
-        </div>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            role="tabpanel"
+            id={`${activeTab}-panel`}
+            aria-labelledby={`${activeTab}-tab`}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+          >
+            {activeTab === 'arena' && (
+              <RedBlueArena 
+                isRunning={isRunning} 
+                isConnected={isConnected}
+                onStart={onStart}
+                onStop={onStop}
+                onAttackInjected={onAttackInjected}
+              />
+            )}
+            {activeTab === 'topology' && <TopologyGraph />}
+            {activeTab === 'marl' && <MARLStatus />}
+            {activeTab === 'xai' && <ExplainabilityPanel />}
+            {activeTab === 'steering' && <SteeringPanel />}
+            {activeTab === 'constraints' && <ConstraintPanel />}
+            {activeTab === 'federated' && <FederatedLearningPanel />}
+            {activeTab === 'game' && <GameTheoryPanel />}
+            {activeTab === 'zkp' && <ZKPPanel />}
+            {activeTab === 'sar' && <SARPanel />}
+          </motion.div>
+        </AnimatePresence>
       </div>
     </div>
   );
