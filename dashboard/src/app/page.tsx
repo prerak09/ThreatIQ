@@ -156,13 +156,17 @@ export default function Page() {
       <header className="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-[1280px] px-4 sm:px-8">
         <div className="bg-white/95 backdrop-blur-md rounded-full shadow-[0_4px_24px_rgba(0,0,0,0.06)] border border-[rgba(20,20,19,0.06)] px-6 sm:px-8 py-3.5 flex items-center justify-between gap-4">
           
-          {/* Mastercard Logo Mark + ThreatIQ Brand */}
+          {/* ThreatIQ Proprietary Inspired Logo Mark */}
           <div className="flex items-center gap-3.5 flex-shrink-0 cursor-pointer" onClick={() => setActiveTab('arena')}>
-            <div className="relative w-9 h-6 flex items-center">
-              {/* Left Mastercard Red Circle */}
-              <div className="absolute left-0 w-6 h-6 rounded-full bg-[#EB001B] shadow-sm" />
-              {/* Right Mastercard Orange/Yellow Circle with blend */}
-              <div className="absolute left-3 w-6 h-6 rounded-full bg-[#F79E1B] mix-blend-multiply opacity-95" />
+            <div className="relative w-9 h-7 flex items-center justify-center">
+              <svg width="34" height="26" viewBox="0 0 34 26" fill="none" xmlns="http://www.w3.org/2000/svg">
+                {/* Left Stadium / Lens (Red Team Signal Rust) */}
+                <rect x="1" y="3" width="18" height="20" rx="9" fill="#CF4500" />
+                {/* Right Interlocking Lens (Blue Team / Gold Intelligence Core) */}
+                <rect x="13" y="3" width="18" height="20" rx="9" fill="#F79E1B" opacity="0.9" style={{ mixBlendMode: 'multiply' }} />
+                {/* Satellite Micro Orbit Dot */}
+                <circle cx="28" cy="6" r="3" fill="#FFFFFF" stroke="#141413" strokeWidth="1" />
+              </svg>
             </div>
             <span className="text-[var(--ink-black)] font-medium text-lg tracking-tight">ThreatIQ</span>
           </div>
@@ -314,9 +318,12 @@ export default function Page() {
           <div className="flex flex-col md:flex-row md:items-start justify-between gap-12 mb-14">
             <div>
               <div className="flex items-center gap-3 mb-4">
-                <div className="relative w-8 h-6 flex items-center">
-                  <div className="absolute left-0 w-6 h-6 rounded-full bg-[#EB001B]" />
-                  <div className="absolute left-3 w-6 h-6 rounded-full bg-[#F79E1B] mix-blend-screen opacity-90" />
+                <div className="relative w-8 h-6 flex items-center justify-center">
+                  <svg width="30" height="22" viewBox="0 0 34 26" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="1" y="3" width="18" height="20" rx="9" fill="#CF4500" />
+                    <rect x="13" y="3" width="18" height="20" rx="9" fill="#F79E1B" opacity="0.9" style={{ mixBlendMode: 'screen' }} />
+                    <circle cx="28" cy="6" r="3" fill="#FFFFFF" />
+                  </svg>
                 </div>
                 <span className="text-xl font-medium tracking-tight">ThreatIQ</span>
               </div>
