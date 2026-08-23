@@ -1,6 +1,11 @@
 <div align="center">
 
-# ⚡ ThreatIQ
+<img width="2743" height="872" alt="Frame 13" src="https://github.com/user-attachments/assets/5e75be20-a601-44b0-87ae-5efafc16374b" />
+
+<img width="2743" height="872" alt="Frame 13 (1)" src="https://github.com/user-attachments/assets/7c95f644-1f15-4c77-89e8-897269d338a5" />
+
+
+
 
 ### Autonomous Adversarial AI Red Team / Blue Team Simulation Platform for Payment Resiliency
 
