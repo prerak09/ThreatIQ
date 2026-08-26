@@ -1,8 +1,12 @@
 """Multi-Agent Reinforcement Learning for adversarial attack optimization."""
 
+import logging
+
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 try:
     import torch
@@ -135,7 +139,7 @@ else:
 
 
 class MARLAgent:
-    def __init__(self, state_dim=5, action_dim=7, lr=3e-4, gamma=0.99, epsilon=1.0):
+    def __init__(self, state_dim=5, action_dim=7, lr=3e-3, gamma=0.99, epsilon=1.0):
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.gamma = gamma
@@ -146,6 +150,7 @@ class MARLAgent:
         # Persistent strategy the policy incrementally shapes.
         self.current_action = AttackActionSpace()
         self._use_torch = TORCH_AVAILABLE
+        self.ppo_epochs = 4
         if TORCH_AVAILABLE:
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
@@ -194,25 +199,33 @@ class MARLAgent:
         returns_t = torch.tensor(returns, dtype=torch.float32)
         returns_t = (returns_t - returns_t.mean()) / (returns_t.std() + 1e-8)
 
-        new_log_probs, entropy, values = self.model.evaluate(states_t, actions_t)
-        advantages = returns_t - values.detach()
+        old_t = (
+            torch.tensor(np.asarray(old_log_probs), dtype=torch.float32)
+            if old_log_probs is not None else None
+        )
 
-        if old_log_probs is not None:
-            old_t = torch.tensor(np.asarray(old_log_probs), dtype=torch.float32)
-            ratio = torch.exp(new_log_probs - old_t)
-        else:
-            # No behaviour-policy log probs recorded — fall back to vanilla
-            # policy gradient on the fresh log probs.
-            ratio = torch.exp(new_log_probs)
+        # PPO runs K optimisation epochs over each collected batch. A single
+        # step per batch is what made the policy look frozen: 60 epochs x 1
+        # step is not enough signal to move a 128-unit network off uniform.
+        for _ in range(self.ppo_epochs):
+            new_log_probs, entropy, values = self.model.evaluate(states_t, actions_t)
+            advantages = returns_t - values.detach()
 
-        surr1 = ratio * advantages
-        surr2 = torch.clamp(ratio, 0.8, 1.2) * advantages
-        loss_actor = -torch.min(surr1, surr2).mean()
-        loss_critic = F.mse_loss(values, returns_t)
-        loss = loss_actor + 0.5 * loss_critic - 0.01 * entropy.mean()
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+            if old_t is not None:
+                ratio = torch.exp(new_log_probs - old_t)
+            else:
+                # No behaviour-policy log probs recorded — fall back to vanilla
+                # policy gradient on the fresh log probs.
+                ratio = torch.exp(new_log_probs)
+
+            surr1 = ratio * advantages
+            surr2 = torch.clamp(ratio, 0.8, 1.2) * advantages
+            loss_actor = -torch.min(surr1, surr2).mean()
+            loss_critic = F.mse_loss(values, returns_t)
+            loss = loss_actor + 0.5 * loss_critic - 0.01 * entropy.mean()
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
 
     def train_episode(self, simulator_fn: Callable, blue_team_fn: Callable, steps=50):
         state = AttackState()
@@ -406,7 +419,17 @@ class MARLOrchestrator:
         return results
 
     def policy_distribution(self, attack_type: str) -> Dict[str, float]:
-        """Current action-selection probabilities for one agent."""
+        """Current action-selection probabilities for one agent.
+
+        Note on the torch path: ``model.actor`` consumes the 128-dim output of
+        ``model.shared``, not the raw state vector. Calling it with the state
+        directly raises a shape error — and an earlier version swallowed that
+        in a bare except and returned a uniform distribution, so the UI showed
+        a flat 1/7 across every action and looked plausible while being wrong.
+        Go through ``forward`` so both paths return the real policy, and let a
+        genuine failure surface as an empty dict rather than fabricated
+        uniform weights.
+        """
         agent = self.agents[attack_type]
         state = AttackState(
             detection_probability=1.0 - self.scores.get(attack_type, 0.0),
@@ -420,12 +443,25 @@ class MARLOrchestrator:
         try:
             if agent._use_torch:
                 with torch.no_grad():
-                    logits = agent.model.actor(torch.tensor(s_vec).unsqueeze(0))
-                    probs = F.softmax(logits, dim=-1).numpy().ravel()
+                    s_t = torch.tensor(s_vec, dtype=torch.float32).unsqueeze(0)
+                    # forward() applies shared -> actor (actor already ends in
+                    # Softmax), returning (probs, value).
+                    probs, _ = agent.model(s_t)
+                    probs = probs.numpy().ravel()
             else:
                 probs = agent.model._softmax(s_vec @ agent.model.W_actor)
-        except Exception:
-            probs = np.ones(len(labels)) / len(labels)
+        except Exception as exc:
+            logger.warning(
+                "policy_distribution failed for %s: %s", attack_type, exc
+            )
+            return {}
+
+        if len(probs) != len(labels):
+            logger.warning(
+                "policy_distribution size mismatch for %s: %d vs %d",
+                attack_type, len(probs), len(labels),
+            )
+            return {}
         return {l: round(float(p), 4) for l, p in zip(labels, probs)}
 
     def get_all_strategies(self):

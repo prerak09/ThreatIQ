@@ -111,3 +111,59 @@ def test_policy_distribution_is_a_valid_simplex(orch):
     assert len(dist) == 7
     assert abs(sum(dist.values()) - 1.0) < 1e-3
     assert all(v >= 0 for v in dist.values())
+
+
+def test_policy_distribution_matches_the_real_model(orch):
+    """The reported policy must be the model's actual output.
+
+    Regression guard: policy_distribution used to call ``model.actor`` with the
+    raw 5-dim state, but the torch actor consumes the 128-dim output of
+    ``model.shared``. That raised a shape error which a bare except swallowed,
+    returning a uniform 1/7 for every action — a plausible-looking distribution
+    that was entirely fabricated, and which shipped to production. A simplex
+    check cannot catch that (uniform is a valid simplex), so compare against a
+    direct forward pass instead.
+    """
+    at = orch.ATTACK_TYPES[0]
+    agent = orch.agents[at]
+    reported = orch.policy_distribution(at)
+    assert reported, "policy_distribution returned nothing"
+
+    state = AttackState(
+        detection_probability=1.0 - orch.scores.get(at, 0.0),
+        anomaly_score=1.0 - agent.epsilon,
+        bypass_history=orch.scores.get(at, 0.0),
+    )
+    s_vec = state.to_tensor()
+
+    if agent._use_torch:
+        import torch
+        with torch.no_grad():
+            probs, _ = agent.model(torch.tensor(s_vec, dtype=torch.float32).unsqueeze(0))
+        expected = probs.numpy().ravel()
+    else:
+        expected = agent.model._softmax(s_vec @ agent.model.W_actor)
+
+    for got, want in zip(reported.values(), expected):
+        assert abs(got - float(want)) < 1e-3, (
+            f"reported policy {list(reported.values())} does not match the "
+            f"model's output {list(expected)}"
+        )
+
+
+def test_policy_moves_away_from_uniform_when_one_action_pays(orch):
+    """With a reward that clearly favours one action, the policy must shift."""
+    perf = {a: 0.5 for a in orch.ATTACK_TYPES}
+    for _ in range(40):
+        orch.evolve_strategies(
+            perf,
+            evaluate_fn=lambda at, act: max(
+                0.05, 0.9 - 0.8 * float(getattr(act, "bio_mimicry", 0.0))
+            ),
+            rollout_steps=6,
+        )
+    dist = orch.policy_distribution(orch.ATTACK_TYPES[0])
+    uniform = 1.0 / 7
+    assert max(dist.values()) > uniform * 1.4, (
+        f"policy stayed ~uniform after 40 epochs: {dist}. The agent is not learning."
+    )
