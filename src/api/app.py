@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -68,6 +69,12 @@ from ..blue_team.zkp_verification import ZKPFraudSystem
 
 logger = logging.getLogger("adversarial_arena.api")
 
+# Hard ceiling on synchronous retraining work accepted from an HTTP request.
+MAX_TRAIN_SAMPLES = 50_000
+
+# Guards against concurrent retrains stacking up on the thread pool.
+_train_lock = asyncio.Lock()
+
 # ---------------------------------------------------------------------------
 # Pydantic request / response models
 # ---------------------------------------------------------------------------
@@ -88,12 +95,24 @@ class UpdateThresholdRequest(BaseModel):
 
 
 class TrainModelRequest(BaseModel):
-    n_samples: int = Field(default=1000, ge=100)
+    # Upper bound matters: training is synchronous CPU work, so an unbounded
+    # n_samples lets a single unauthenticated request wedge the event loop
+    # (and fail the platform healthcheck, which restarts the container).
+    n_samples: int = Field(default=1000, ge=100, le=MAX_TRAIN_SAMPLES)
 
 
 class ApplySteeringRequest(BaseModel):
     concept_id: str
     intensity: float = Field(default=0.5, ge=0, le=1)
+
+
+class VerifyProofRequest(BaseModel):
+    """A caller-supplied proof to verify. Tampering with any field must fail."""
+    a: str
+    b: str
+    c: str
+    public_signals: List[int] = Field(default_factory=list)
+    public_inputs: List[int] = Field(default_factory=list)
 
 
 class SolveGameRequest(BaseModel):
@@ -128,6 +147,9 @@ class AppState:
         self.game_result: Optional[Dict[str, Any]] = None
         self.zkp: Optional[ZKPFraudSystem] = None
         self.zkp_certificate: Optional[Dict[str, Any]] = None
+        # Issued attestations, keyed by proof_id, so /verify can check a proof
+        # that was actually issued rather than minting a fresh one.
+        self.zkp_proofs: Dict[str, Dict[str, Any]] = {}
         self.threshold: float = 0.5
         self.ws_clients: List[WebSocket] = []
         self._stream_task: Optional[asyncio.Task] = None
@@ -192,6 +214,31 @@ async def lifespan(app: FastAPI):
     X_train, y_train, X_cal, y_cal = _build_training_sets(n_train=2400, n_cal=600)
     state.model = FraudDetectionModel(contamination=0.01)
     state.model.train(X_train, y_train, feature_names=list(FEATURE_NAMES))
+
+    # Held-out split reserved for promotion decisions; the active-learning
+    # loop never sees it, so it cannot overfit the gate.
+    _VALIDATION["X"], _VALIDATION["y"] = X_cal, y_cal
+
+    # --- Calibrate the serving threshold on the held-out split ---
+    # A hardcoded 0.5 is arbitrary: the ensemble averages engines with very
+    # different score distributions, so 0.5 gave ~25% precision in live traffic.
+    # Pick the F1-optimal operating point on data the model did not train on.
+    try:
+        cal_proba = state.model.predict_proba(X_cal)[:, 1]
+        candidates = np.linspace(0.10, 0.90, 81)
+        best_t, best_f1 = 0.5, -1.0
+        for t in candidates:
+            pred = (cal_proba >= t).astype(int)
+            tp = int(((pred == 1) & (y_cal == 1)).sum())
+            fp = int(((pred == 1) & (y_cal == 0)).sum())
+            fn = int(((pred == 0) & (y_cal == 1)).sum())
+            f1 = (2 * tp / (2 * tp + fp + fn)) if (2 * tp + fp + fn) else 0.0
+            if f1 > best_f1:
+                best_t, best_f1 = float(t), f1
+        state.threshold = round(best_t, 3)
+        logger.info("Calibrated serving threshold: %.3f (cal F1=%.4f)", state.threshold, best_f1)
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning("Threshold calibration failed, keeping %.2f: %s", state.threshold, e)
 
     # --- Closed-loop active learning wired into the simulation runner ---
     state.active_learning = ActiveLearningLoop(
@@ -337,11 +384,147 @@ def _blue_team_classify(features: Dict[str, float]) -> Dict[str, Any]:
         return {"is_fraud": False, "confidence": 0.0, "engine_scores": {}, "error": str(exc)}
 
 
+def _marl_evaluate(attack_type: str, action: Any, n: int = 32) -> float:
+    """Score one MARL action against the live blue-team classifier.
+
+    Generates ``n`` fraudulent transactions shaped by the candidate strategy,
+    scores them in a single batched forward pass through the *real* detection
+    model, and returns the measured detection rate. This is the link that makes
+    the red/blue loop closed: the attacker's reward comes from the deployed
+    defender, not a constant.
+    """
+    if state.simulation is None or state.model is None or not state.model._fitted:
+        return 0.5
+
+    attacker = state.simulation.attacker
+    amount_dev = float(getattr(action, "amount_deviation", 0.0))
+    jitter = float(getattr(action, "timing_jitter", 0.0))
+    spread = float(getattr(action, "geo_spread", 0))
+    mimicry = float(getattr(action, "bio_mimicry", 0.0))
+
+    rows = []
+    for _ in range(n):
+        feats = extract_features(attacker.generate_transaction())
+        # Apply the candidate evasion strategy to the feature vector.
+        feats["amount"] = max(1.0, feats["amount"] * (1.0 - amount_dev))
+        feats["amount_log"] = float(np.log1p(feats["amount"]))
+        feats["hour"] = float(int(feats["hour"] + jitter * 6) % 24)
+        feats["geo_lat"] += spread * 0.15
+        feats["geo_long"] += spread * 0.15
+        # Behavioural mimicry pulls the biometric score toward the legitimate
+        # band. This is the lever that actually moves the detector, and it is
+        # exactly the capability GenAI gives an attacker.
+        feats["behavioral_score"] = float(
+            min(0.99, feats["behavioral_score"] + mimicry * (0.9 - feats["behavioral_score"]))
+        )
+        rows.append(_feature_vector(feats))
+
+    try:
+        proba = state.model.predict_proba(np.stack(rows))[:, 1]
+    except Exception as exc:
+        logger.warning("MARL evaluation failed: %s", exc)
+        return 0.5
+    return float((proba >= state.threshold).mean())
+
+
+# Held-out validation split, kept for champion/challenger promotion decisions.
+_VALIDATION: Dict[str, Any] = {"X": None, "y": None}
+
+# Minimum labelled samples before an online retrain is even attempted.
+MIN_RETRAIN_SAMPLES = 400
+
+
+def _f1(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    tp = int(((y_pred == 1) & (y_true == 1)).sum())
+    fp = int(((y_pred == 1) & (y_true == 0)).sum())
+    fn = int(((y_pred == 0) & (y_true == 1)).sum())
+    denom = 2 * tp + fp + fn
+    return (2 * tp / denom) if denom else 0.0
+
+
+def _score_on_validation(model: FraudDetectionModel) -> Optional[float]:
+    X, y = _VALIDATION.get("X"), _VALIDATION.get("y")
+    if X is None or y is None:
+        return None
+    try:
+        proba = model.predict_proba(X)[:, 1]
+        return _f1(y, (proba >= state.threshold).astype(int))
+    except Exception:
+        return None
+
+
 def _retrain_callback(X: np.ndarray, y: np.ndarray) -> Dict[str, Any]:
-    """Active-learning retrain callback."""
+    """Active-learning retrain, gated by a champion/challenger promotion test.
+
+    Retraining a live model on whatever the active-learning loop happened to
+    collect is not safe: the buffer is small and deliberately biased toward
+    hard and uncertain cases. Doing it unguarded degraded the deployed model
+    from ~86% precision to ~24% after a single 20-sample retrain.
+
+    The rule now: train a *challenger* on the new data, evaluate both champion
+    and challenger on a held-out split the loop never touches, and promote only
+    if the challenger does not regress. A rejected challenger is discarded and
+    the champion keeps serving.
+    """
     if state.model is None:
-        return {"error": "Model not initialised"}
-    return state.model.train(X, y, feature_names=list(FEATURE_NAMES))
+        return {"error": "Model not initialised", "promoted": False}
+
+    if len(y) < MIN_RETRAIN_SAMPLES:
+        return {
+            "promoted": False,
+            "reason": f"insufficient data: {len(y)} < {MIN_RETRAIN_SAMPLES} samples",
+            "n_samples": int(len(y)),
+        }
+
+    classes = set(np.unique(y).tolist())
+    if len(classes) < 2:
+        return {
+            "promoted": False,
+            "reason": f"single-class batch ({classes}) — would collapse the model",
+            "n_samples": int(len(y)),
+        }
+
+    champion_f1 = _score_on_validation(state.model)
+
+    challenger = FraudDetectionModel(contamination=state.model.contamination)
+    try:
+        metrics = challenger.train(X, y, feature_names=list(FEATURE_NAMES))
+    except Exception as exc:
+        logger.warning("Challenger training failed: %s", exc)
+        return {"promoted": False, "reason": f"training failed: {exc}"}
+
+    challenger_f1 = _score_on_validation(challenger)
+
+    if champion_f1 is None or challenger_f1 is None:
+        return {"promoted": False, "reason": "no validation set available"}
+
+    # Small tolerance so identical performance does not churn the served model.
+    if challenger_f1 >= champion_f1 - 0.01:
+        state.model = challenger
+        logger.info(
+            "Challenger promoted: validation F1 %.4f -> %.4f (n=%d)",
+            champion_f1, challenger_f1, len(y),
+        )
+        return {
+            "promoted": True,
+            "champion_f1": round(champion_f1, 4),
+            "challenger_f1": round(challenger_f1, 4),
+            "n_samples": int(len(y)),
+            "metrics": metrics,
+        }
+
+    logger.warning(
+        "Challenger REJECTED: validation F1 would drop %.4f -> %.4f (n=%d). "
+        "Champion retained.",
+        champion_f1, challenger_f1, len(y),
+    )
+    return {
+        "promoted": False,
+        "reason": "challenger regressed on held-out validation",
+        "champion_f1": round(champion_f1, 4),
+        "challenger_f1": round(challenger_f1, 4),
+        "n_samples": int(len(y)),
+    }
 
 
 def _find_transaction(transaction_id: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -506,9 +689,21 @@ async def train_model(req: TrainModelRequest = TrainModelRequest()):
     if state.model is None:
         raise HTTPException(status_code=503, detail="Model not initialised")
 
-    X, y, _, _ = _build_training_sets(n_train=req.n_samples, n_cal=100)
-    metrics = state.model.train(X, y, feature_names=list(FEATURE_NAMES))
-    return {"message": "Model retrained", "metrics": metrics}
+    if _train_lock.locked():
+        raise HTTPException(
+            status_code=409, detail="A retrain is already in progress"
+        )
+
+    async with _train_lock:
+        # Both steps are CPU-bound; running them on the event loop blocks every
+        # other request, including /api/health.
+        X, y, _, _ = await run_in_threadpool(
+            _build_training_sets, req.n_samples, 100
+        )
+        metrics = await run_in_threadpool(
+            state.model.train, X, y, list(FEATURE_NAMES)
+        )
+    return {"message": "Model retrained", "metrics": metrics, "n_samples": req.n_samples}
 
 
 @app.get("/api/model/metrics")
@@ -688,24 +883,54 @@ async def file_sar(sar_id: str):
 # ---------------------------------------------------------------------------
 
 def _build_temporal_graph(limit: int = 400) -> TemporalGraph:
+    """Card-to-card graph linking cards that share infrastructure.
+
+    The previous version added only one-way edges (card->ip, card->dev,
+    dev->ip). That graph is a DAG, so Tarjan's SCC search could never find a
+    component and ring detection returned an empty list on every call
+    regardless of the traffic.
+
+    The correct semantics for ring detection is a projection onto cards: two
+    cards are linked when they transact from the same device or the same IP.
+    A strongly-connected component of >= 3 cards is then a genuine cluster of
+    cards sharing infrastructure — which is what a fraud ring looks like.
+    """
     graph = TemporalGraph()
     if state.simulation is None:
         return graph
+
     snap = state.simulation.snapshot_transactions(limit=limit)
+
+    # infrastructure id -> cards seen on it, and card -> latest timestamp
+    shared: Dict[str, set] = {}
+    card_ts: Dict[str, float] = {}
+
     for t in snap:
         try:
             ts = datetime.fromisoformat(t["timestamp"]).timestamp()
         except (KeyError, TypeError, ValueError):
             ts = time.time()
+
         card = f"card-{t.get('card_last4')}"
-        ip = f"ip-{t.get('ip_address')}"
-        dev = f"dev-{t.get('device_fingerprint')}"
+        card_ts[card] = max(card_ts.get(card, 0.0), ts)
+
+        for key in (f"dev-{t.get('device_fingerprint')}", f"ip-{t.get('ip_address')}"):
+            shared.setdefault(key, set()).add(card)
+
+    for card, ts in card_ts.items():
         graph.add_node(card, "card", timestamp=ts)
-        graph.add_node(ip, "ip", timestamp=ts)
-        graph.add_node(dev, "device", timestamp=ts)
-        graph.add_edge(card, ip, ts, "shared_tx")
-        graph.add_edge(card, dev, ts, "shared_tx")
-        graph.add_edge(dev, ip, ts, "shared_tx")
+
+    # Bidirectional edges: sharing a device or IP is a symmetric relation, so
+    # a cluster of co-located cards forms a strongly connected component.
+    for key, cards in shared.items():
+        if len(cards) < 2:
+            continue
+        members = sorted(cards)
+        for i, a in enumerate(members):
+            for b in members[i + 1:]:
+                ts = max(card_ts.get(a, 0.0), card_ts.get(b, 0.0))
+                graph.add_edge(a, b, ts, "shared_infrastructure")
+                graph.add_edge(b, a, ts, "shared_infrastructure")
     return graph
 
 
@@ -805,22 +1030,29 @@ async def get_marl_agents():
         raise HTTPException(status_code=503, detail="MARL orchestrator not initialised")
     agents = []
     for at, agent in state.marl.agents.items():
-        strategy = agent.get_evasion_strategy(at)
+        history = state.marl.history.get(at, [])
         agents.append({
-            "agent_id": f"attacker-{at}",
-            "role": "adversary",
+            "agent_id": at.replace("_", "-"),
             "attack_type": at,
+            "role": "adversary",
+            "evasion_rate": round(state.marl.scores.get(at, 0.0), 4),
             "reward": round(state.marl.scores.get(at, 0.0), 4),
             "current_epsilon": round(agent.epsilon, 4),
-            "strategy": {
-                "split_count": strategy["split_count"],
-                "velocity_delay_ms": strategy["velocity_delay_ms"],
-                "proxy_rotation": strategy["proxy_rotation"],
-                "geo_spread": strategy["geo_spread"],
-                "timing_jitter": strategy["timing_jitter"],
-            },
+            "episodes_evaluated": state.marl.episodes.get(at, 0),
+            "history": history,
+            "min_evasion": round(min(history), 4) if history else None,
+            "max_evasion": round(max(history), 4) if history else None,
+            "delta_this_epoch": (
+                round(history[-1] - history[-2], 4) if len(history) >= 2 else None
+            ),
+            "policy_actions": state.marl.policy_distribution(at),
+            "strategy": agent.get_evasion_strategy(at),
         })
-    return {"agents": agents, "global_step": len(state._marl_evolution_history)}
+    return {
+        "agents": agents,
+        "global_step": state.marl.epoch,
+        "has_data": state.marl.epoch > 0,
+    }
 
 
 def _per_category_detection_rates() -> Dict[str, float]:
@@ -840,30 +1072,52 @@ async def evolve_marl(epochs: int = 10):
     if state.marl is None or state.simulation is None:
         raise HTTPException(status_code=503, detail="MARL orchestrator not initialised")
 
+    epochs = max(1, min(epochs, 50))
     category_rates = _per_category_detection_rates()
-    overall = (sum(category_rates.values()) / len(category_rates)) if category_rates else 0.5
 
-    # Feed each MARL attack type the detection rate of the corresponding
-    # taxonomy category (cycled when there are more types than categories).
     categories = sorted(category_rates.keys()) or ["unknown"]
     performance = {
-        at: category_rates[categories[i % len(categories)]]
+        at: category_rates.get(categories[i % len(categories)], 0.5)
         for i, at in enumerate(state.marl.ATTACK_TYPES)
     }
-    for _ in range(max(1, min(epochs, 100))):
-        state.marl.evolve_strategies(performance)
+
+    # Policy updates are CPU-bound and hit the classifier per rollout step.
+    def _run() -> List[Dict[str, float]]:
+        per_epoch = []
+        for _ in range(epochs):
+            per_epoch.append(
+                state.marl.evolve_strategies(
+                    performance,
+                    evaluate_fn=_marl_evaluate,
+                    rollout_steps=6,
+                )
+            )
+        return per_epoch
+
+    epoch_results = await run_in_threadpool(_run)
+
+    final = epoch_results[-1] if epoch_results else {}
+    overall_detection = 1.0 - (sum(final.values()) / len(final)) if final else 0.0
 
     entry = {
         "timestamp": datetime.now().isoformat(),
         "epochs": epochs,
+        "epoch_index": state.marl.epoch,
         "category_detection_rates": {k: round(v, 4) for k, v in category_rates.items()},
         "avg_attacker_evasion_score": round(
             sum(state.marl.scores.values()) / max(len(state.marl.scores), 1), 4
         ),
-        "overall_detection_rate": round(overall, 4),
+        "overall_detection_rate": round(overall_detection, 4),
+        "per_agent_evasion": {k: round(v, 4) for k, v in final.items()},
     }
     state._marl_evolution_history.append(entry)
-    return {"evolved": True, "epochs_run": epochs, "history": state._marl_evolution_history[-10:]}
+    return {
+        "evolved": True,
+        "epochs_run": epochs,
+        "global_epoch": state.marl.epoch,
+        "per_agent_evasion": entry["per_agent_evasion"],
+        "history": state._marl_evolution_history[-10:],
+    }
 
 
 @app.get("/api/marl/history")
@@ -1221,11 +1475,25 @@ async def generate_zkp(transaction_id: Optional[str] = None):
         raise HTTPException(status_code=503, detail="ZKP system not initialised")
     features = _latest_feature_ints()
     proof = state.zkp.prove_fraud_check(features, MODEL_WEIGHTS_INT)
+    public_inputs = features + [proof["model_hash"]]
     verification = state.zkp.verify_fraud_check(proof, features, proof["model_hash"])
+
+    proof_id = proof["a"][:12]
+    # Retain what a verifier needs; the private witness is never stored.
+    state.zkp_proofs[proof_id] = {
+        "a": proof["a"], "b": proof["b"], "c": proof["c"],
+        "public_signals": proof.get("public_signals", []),
+        "public_inputs": public_inputs,
+    }
+    if len(state.zkp_proofs) > 500:
+        for stale in list(state.zkp_proofs)[:250]:
+            state.zkp_proofs.pop(stale, None)
+
     return {
-        "proof_id": proof["a"][:12],
+        "proof_id": proof_id,
         "transaction_id": transaction_id or (_find_transaction(None) or {}).get("transaction_id", "TX-latest"),
-        "proof_type": "Groth16 (simulated)",
+        "proof_type": "hash-commitment-attestation",
+        "is_zk_snark": False,
         "circuit": state.zkp.circuit.circuit_name,
         "proving_time_ms": proof["proof_time_ms"],
         "proof_size_bytes": len(proof["a"]) + len(proof["b"]) + len(proof["c"]),
@@ -1239,19 +1507,48 @@ async def generate_zkp(transaction_id: Optional[str] = None):
 
 
 @app.post("/api/zkp/verify")
-async def verify_zkp(proof_id: str = "proof-00001"):
+async def verify_zkp(
+    proof_id: Optional[str] = None,
+    body: Optional[VerifyProofRequest] = None,
+):
+    """Verify an attestation.
+
+    Either pass ``proof_id`` for a previously issued proof, or POST the proof
+    itself. A tampered proof or a mismatched statement returns valid=false —
+    this endpoint does not mint a fresh proof to verify against itself.
+    """
     if state.zkp is None:
         raise HTTPException(status_code=503, detail="ZKP system not initialised")
-    features = _latest_feature_ints()
-    proof = state.zkp.prove_fraud_check(features, MODEL_WEIGHTS_INT)
+
+    if body is not None:
+        record = {
+            "a": body.a, "b": body.b, "c": body.c,
+            "public_signals": body.public_signals,
+            "public_inputs": body.public_inputs,
+        }
+        resolved_id = body.a[:12] if body.a else "supplied"
+    elif proof_id:
+        record = state.zkp_proofs.get(proof_id)
+        if record is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Unknown proof_id '{proof_id}'. Issue one via POST /api/zkp/prove.",
+            )
+        resolved_id = proof_id
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail="Supply either a proof_id query parameter or a proof body.",
+        )
+
     t0 = time.perf_counter()
-    valid = state.zkp.verifier.verify(proof, features + [proof["model_hash"]])
+    valid = state.zkp.verifier.verify(record, record.get("public_inputs", []))
     elapsed_ms = (time.perf_counter() - t0) * 1000
     return {
-        "proof_id": proof_id,
+        "proof_id": resolved_id,
         "valid": bool(valid),
         "verification_time_ms": round(elapsed_ms, 3),
-        "error": None if valid else "Invalid proof: constraint satisfaction check failed",
+        "error": None if valid else "Verification failed: proof does not attest to the supplied statement",
         **state.zkp.verifier.get_verification_stats(),
     }
 

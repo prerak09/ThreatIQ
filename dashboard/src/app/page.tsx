@@ -21,62 +21,9 @@ const NAV_TABS: Array<{ id: TabId; label: string }> = [
   { id: 'sar', label: 'SAR' },
 ];
 
-const INITIAL_TRANSACTIONS: Transaction[] = [
-  {
-    id: 'TXN-88FCB93493D9',
-    amount: 14500.0,
-    currency: 'USD',
-    channel: 'tokenized',
-    attack_type: 'Multi-Hop CNP',
-    status: 'detected',
-    timestamp: Date.now() - 2000,
-    card_last4: '4521',
-    is_fraud: true,
-    blue_team_confidence: 0.94,
-    blue_team_result: {
-      is_fraud: true,
-      confidence: 0.94,
-      latency_ms: 11.8,
-      engine_scores: { xgboost: 0.96, lightgbm: 0.93, iforest: 0.88 },
-    },
-  },
-  {
-    id: 'TXN-54C99A10CA78',
-    amount: 3200.0,
-    currency: 'EUR',
-    channel: 'e-commerce',
-    attack_type: 'Synthetic Identity',
-    status: 'detected',
-    timestamp: Date.now() - 7000,
-    card_last4: '8890',
-    is_fraud: true,
-    blue_team_confidence: 0.89,
-    blue_team_result: {
-      is_fraud: true,
-      confidence: 0.89,
-      latency_ms: 9.4,
-      engine_scores: { xgboost: 0.91, lightgbm: 0.88, iforest: 0.74 },
-    },
-  },
-  {
-    id: 'TXN-C4BCFEA42E34',
-    amount: 85.5,
-    currency: 'USD',
-    channel: 'pos_contactless',
-    attack_type: 'Normal Payment',
-    status: 'approved',
-    timestamp: Date.now() - 15000,
-    card_last4: '1102',
-    is_fraud: false,
-    blue_team_confidence: 0.08,
-    blue_team_result: {
-      is_fraud: false,
-      confidence: 0.08,
-      latency_ms: 6.2,
-      engine_scores: { xgboost: 0.06, lightgbm: 0.07, iforest: 0.12 },
-    },
-  },
-];
+// The dashboard starts empty and fills from the live stream. Seeding it with
+// example rows makes a disconnected backend look like a working system.
+const INITIAL_TRANSACTIONS: Transaction[] = [];
 
 export default function Page() {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
@@ -88,8 +35,8 @@ export default function Page() {
   const [totalProcessed, setTotalProcessed] = useState(0);
   const [totalAttacks, setTotalAttacks] = useState(0);
   const [detectedCount, setDetectedCount] = useState(0);
-  const [detectionRate, setDetectionRate] = useState(96.4);
-  const [latencyMs, setLatencyMs] = useState(11.8);
+  const [detectionRate, setDetectionRate] = useState<number | null>(null);
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [roiAmount, setRoiAmount] = useState(0);
 
   // Centralized Transactions List shared across all modules
@@ -135,7 +82,9 @@ export default function Page() {
                 setDetectionRate(Number(((nextDet / nextAttacks) * 100).toFixed(1)));
                 return nextDet;
               });
-              setRoiAmount((prevRoi) => prevRoi + (normalizedTx.amount > 0 ? Math.round(normalizedTx.amount * 120) : 4500));
+              // Loss prevented is the face value of blocked fraud — not a
+              // multiplier, and never a flat placeholder when the amount is 0.
+              setRoiAmount((prevRoi) => prevRoi + Math.max(0, Math.round(normalizedTx.amount || 0)));
             } else {
               setDetectedCount((prevDet) => {
                 setDetectionRate(Number(((prevDet / nextAttacks) * 100).toFixed(1)));
@@ -161,16 +110,29 @@ export default function Page() {
         if (health) {
           setIsConnected(true);
         }
-        const defense = await api.getDefenseMetrics();
-        if (defense && defense.total_predictions > 0) {
-          const estimatedAttacks = Math.round(defense.total_predictions * 0.18);
-          const detected = Math.max(0, estimatedAttacks - defense.total_false_negatives);
-          setTotalProcessed(defense.total_predictions);
-          setTotalAttacks(estimatedAttacks);
-          setDetectedCount(detected);
-          setDetectionRate(estimatedAttacks > 0 ? Number(((detected / estimatedAttacks) * 100).toFixed(1)) : 96.4);
-          if (defense.roi?.cost_avoidance > 0) {
-            setRoiAmount(Math.round(defense.roi.cost_avoidance));
+        // Use the simulation's own counters. The previous code multiplied
+        // total predictions by a hardcoded 0.18 and presented the result as a
+        // measured attack count.
+        const metrics = await api.getMetrics();
+        if (metrics && metrics.total_transactions > 0) {
+          setTotalProcessed(metrics.total_transactions);
+          setTotalAttacks(metrics.fraud_injected ?? 0);
+          setDetectedCount(metrics.fraud_detected ?? 0);
+          setDetectionRate(
+            typeof metrics.detection_rate === 'number' ? metrics.detection_rate : null
+          );
+          if (typeof metrics.avg_latency_ms === 'number') {
+            setLatencyMs(Number(metrics.avg_latency_ms.toFixed(1)));
+          }
+          setIsRunning(true);
+        } else {
+          // Cold visitor: start the simulation so the demo shows real traffic
+          // instead of a page of zeros.
+          try {
+            await api.startSimulation({ num_victims: 500, fraud_ratio: 0.18, transaction_rate_tps: 8 });
+            setIsRunning(true);
+          } catch {
+            /* leave stopped; the connection banner already reports the state */
           }
         }
       } catch (err) {
@@ -198,8 +160,10 @@ export default function Page() {
         setIsRunning(true);
       }
     } catch (err) {
-      console.warn('Simulation toggle fallback:', err);
-      setIsRunning(!isRunning);
+      // Do not flip the indicator on failure — that reports a running
+      // simulation that does not exist.
+      console.error('Simulation toggle failed:', err);
+      setIsConnected(false);
     } finally {
       setLoadingAction(false);
     }
@@ -213,7 +177,8 @@ export default function Page() {
       setTotalProcessed(0);
       setTotalAttacks(0);
       setDetectedCount(0);
-      setDetectionRate(0);
+      setDetectionRate(null);
+      setLatencyMs(null);
       setRoiAmount(0);
       setTransactions(INITIAL_TRANSACTIONS);
     } catch (e) {
@@ -221,7 +186,8 @@ export default function Page() {
       setTotalProcessed(0);
       setTotalAttacks(0);
       setDetectedCount(0);
-      setDetectionRate(0);
+      setDetectionRate(null);
+      setLatencyMs(null);
       setRoiAmount(0);
       setTransactions(INITIAL_TRANSACTIONS);
     } finally {
@@ -475,14 +441,14 @@ export default function Page() {
                   animate={{ scale: 1 }}
                   className="stat-value-xl text-[var(--link-blue)] mt-1.5"
                 >
-                  {totalAttacks > 0 ? `${detectionRate}%` : '0%'}
+                  {detectionRate !== null && totalAttacks > 0 ? `${detectionRate}%` : '—'}
                 </motion.span>
               </div>
 
               {/* Latency */}
               <div className="flex flex-col items-center border-l sm:border-l border-[var(--dust-taupe)]/40 pl-3 sm:pl-6">
                 <span className="stat-label">AVG LATENCY</span>
-                <span className="stat-value-xl mt-1.5">{latencyMs}ms</span>
+                <span className="stat-value-xl mt-1.5">{latencyMs !== null ? `${latencyMs}ms` : '—'}</span>
               </div>
 
               {/* Loss Prevented / ROI */}
@@ -505,7 +471,8 @@ export default function Page() {
             totalProcessed={totalProcessed}
             totalAttacks={totalAttacks}
             detectedCount={detectedCount}
-            detectionRate={detectionRate}
+            detectionRate={detectionRate ?? 0}
+            latencyMs={latencyMs}
             roiAmount={roiAmount}
             transactions={transactions}
             onAttackInjected={handleManualAttackInjected}

@@ -21,6 +21,10 @@ class AttackActionSpace:
     amount_deviation: float = 0.1
     geo_spread: int = 3
     timing_jitter: float = 0.2
+    # Investment in behavioural-biometrics mimicry: the GenAI-specific lever.
+    # A synthesised session that reproduces human typing cadence, scroll and
+    # touch dynamics raises the behavioural score toward legitimate range.
+    bio_mimicry: float = 0.0
 
     def sample(self):
         return AttackActionSpace(
@@ -30,6 +34,7 @@ class AttackActionSpace:
             amount_deviation=np.random.uniform(0.01, 0.5),
             geo_spread=np.random.randint(1, 10),
             timing_jitter=np.random.uniform(0.0, 1.0),
+            bio_mimicry=np.random.uniform(0.0, 1.0),
         )
 
     def to_vector(self):
@@ -40,6 +45,7 @@ class AttackActionSpace:
             self.amount_deviation,
             self.geo_spread / 10.0,
             self.timing_jitter,
+            self.bio_mimicry,
         ], dtype=np.float32)
 
 
@@ -102,9 +108,34 @@ else:
             value = float(np.asarray(state @ self.W_critic).ravel()[0])
             return action, float(np.log(probs[action] + 1e-8)), value
 
+        def update(self, states, actions, returns, lr=0.05):
+            """REINFORCE with a learned linear baseline.
+
+            The torch path uses PPO; this keeps the numpy fallback a real
+            learner rather than a no-op, so the evolution curve is genuine
+            even in deployments without torch installed.
+            """
+            states = np.asarray(states, dtype=np.float64)
+            returns = np.asarray(returns, dtype=np.float64)
+            if returns.std() > 1e-8:
+                returns = (returns - returns.mean()) / (returns.std() + 1e-8)
+            else:
+                returns = returns - returns.mean()
+
+            for s_vec, a, G in zip(states, actions, returns):
+                probs = self._softmax(s_vec @ self.W_actor)
+                baseline = float(np.asarray(s_vec @ self.W_critic).ravel()[0])
+                advantage = G - baseline
+
+                # d(log pi_a)/d(logits) = onehot(a) - probs
+                grad_logits = -probs
+                grad_logits[a] += 1.0
+                self.W_actor += lr * advantage * np.outer(s_vec, grad_logits)
+                self.W_critic += lr * (G - baseline) * s_vec.reshape(-1, 1)
+
 
 class MARLAgent:
-    def __init__(self, state_dim=5, action_dim=6, lr=3e-4, gamma=0.99, epsilon=1.0):
+    def __init__(self, state_dim=5, action_dim=7, lr=3e-4, gamma=0.99, epsilon=1.0):
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.gamma = gamma
@@ -112,6 +143,8 @@ class MARLAgent:
         self.epsilon_decay = 0.995
         self.epsilon_min = 0.05
         self.model = ActorCritic(state_dim, action_dim)
+        # Persistent strategy the policy incrementally shapes.
+        self.current_action = AttackActionSpace()
         self._use_torch = TORCH_AVAILABLE
         if TORCH_AVAILABLE:
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -138,7 +171,18 @@ class MARLAgent:
         time; without them the importance ratio is meaningless (it would be
         identically 1 and the actor would never receive a policy gradient).
         """
+        returns_np = []
+        G_np = 0.0
+        for r in reversed(rewards):
+            G_np = r + self.gamma * G_np
+            returns_np.insert(0, G_np)
+
         if not self._use_torch:
+            self.model.update(
+                [s.to_tensor() if hasattr(s, "to_tensor") else s for s in states],
+                actions,
+                returns_np,
+            )
             return
         returns = []
         G = 0
@@ -193,18 +237,35 @@ class MARLAgent:
         return total_reward
 
     def _action_from_index(self, idx):
-        action = AttackActionSpace()
+        """Apply action ``idx`` to the agent's *persistent* strategy.
+
+        Previously this rebuilt an AttackActionSpace from defaults every call,
+        so only one dimension was ever non-default and the agent could never
+        compound a multi-dimensional evasion strategy — the policy had nothing
+        to learn toward. The strategy now persists across steps and each action
+        nudges one dimension, so successful combinations accumulate.
+        """
+        action = self.current_action
         mappings = [
-            lambda: setattr(action, 'split_count', np.random.randint(2, 20)),
-            lambda: setattr(action, 'velocity_delay_ms', np.random.uniform(10, 500)),
-            lambda: setattr(action, 'proxy_rotation', np.random.randint(1, 20)),
-            lambda: setattr(action, 'amount_deviation', np.random.uniform(0.01, 0.5)),
-            lambda: setattr(action, 'geo_spread', np.random.randint(1, 10)),
-            lambda: setattr(action, 'timing_jitter', np.random.uniform(0.0, 1.0)),
+            lambda: setattr(action, 'split_count',
+                            int(np.clip(action.split_count + np.random.randint(-3, 4), 2, 20))),
+            lambda: setattr(action, 'velocity_delay_ms',
+                            float(np.clip(action.velocity_delay_ms + np.random.uniform(-80, 80), 10, 500))),
+            lambda: setattr(action, 'proxy_rotation',
+                            int(np.clip(action.proxy_rotation + np.random.randint(-3, 4), 1, 20))),
+            lambda: setattr(action, 'amount_deviation',
+                            float(np.clip(action.amount_deviation + np.random.uniform(-0.1, 0.1), 0.01, 0.5))),
+            lambda: setattr(action, 'geo_spread',
+                            int(np.clip(action.geo_spread + np.random.randint(-2, 3), 1, 10))),
+            lambda: setattr(action, 'timing_jitter',
+                            float(np.clip(action.timing_jitter + np.random.uniform(-0.2, 0.2), 0.0, 1.0))),
+            lambda: setattr(action, 'bio_mimicry',
+                            float(np.clip(action.bio_mimicry + np.random.uniform(-0.15, 0.25), 0.0, 1.0))),
         ]
         if idx < len(mappings):
             mappings[idx]()
-        return action
+        # Return a snapshot so callers cannot mutate the agent's live strategy.
+        return AttackActionSpace(**vars(action))
 
     def get_evasion_strategy(self, attack_vector: str):
         state = AttackState(
@@ -236,21 +297,101 @@ class MARLOrchestrator:
     def __init__(self):
         self.agents: Dict[str, MARLAgent] = {at: MARLAgent() for at in self.ATTACK_TYPES}
         self.scores: Dict[str, float] = {at: 0.0 for at in self.ATTACK_TYPES}
+        # Real, recorded evolution history — the dashboard plots this rather
+        # than synthesising a curve client-side.
+        self.history: Dict[str, List[float]] = {at: [] for at in self.ATTACK_TYPES}
+        self.episodes: Dict[str, int] = {at: 0 for at in self.ATTACK_TYPES}
+        self.best_actions: Dict[str, AttackActionSpace] = {}
+        self.epoch: int = 0
 
-    def evolve_strategies(self, blue_team_performance: Dict[str, float]):
+    def evolve_strategies(
+        self,
+        blue_team_performance: Dict[str, float],
+        evaluate_fn: Optional[Callable[[str, AttackActionSpace], float]] = None,
+        rollout_steps: int = 8,
+    ) -> Dict[str, float]:
+        """Run one evolution epoch: rollout -> reward -> policy update.
+
+        Parameters
+        ----------
+        blue_team_performance:
+            Measured detection rate per attack type, used to seed the state
+            and as the fallback reward signal.
+        evaluate_fn:
+            ``fn(attack_type, action) -> detection_rate``. When supplied, each
+            sampled action is scored against the *live* blue-team classifier,
+            which is what actually closes the red/blue loop. Without it the
+            agent still learns, but only against the last observed detection
+            rate.
+        rollout_steps:
+            Actions sampled per agent per epoch before the policy update.
+
+        Returns
+        -------
+        dict mapping attack_type -> evasion rate measured this epoch.
+        """
+        epoch_scores: Dict[str, float] = {}
+
         for attack_type, agent in self.agents.items():
-            detection_rate = blue_team_performance.get(attack_type, 0.5)
+            seed_detection = blue_team_performance.get(attack_type, 0.5)
+
+            states, actions, rewards, log_probs = [], [], [], []
             state = AttackState(
-                detection_probability=detection_rate,
+                detection_probability=seed_detection,
                 anomaly_score=1.0 - agent.epsilon,
-                velocity_remaining=0.5,
-                amount_remaining=0.7,
+                velocity_remaining=1.0,
+                amount_remaining=1.0,
                 bypass_history=self.scores.get(attack_type, 0.0),
             )
-            action_idx, _, _ = self.select_action_for_agent(agent, state)
-            self.scores[attack_type] = 1.0 - detection_rate
-            # Evolution progress: anneal exploration like train_episode does.
+
+            detections = []
+            for _ in range(max(1, rollout_steps)):
+                action_idx, log_prob, _ = agent.select_action(state, explore=True)
+                candidate = agent._action_from_index(action_idx)
+
+                if evaluate_fn is not None:
+                    detection_rate = float(evaluate_fn(attack_type, candidate))
+                else:
+                    detection_rate = seed_detection
+                detections.append(detection_rate)
+
+                bypass = 1.0 - detection_rate
+                reward = agent.compute_reward(
+                    bypass_success=bypass,
+                    detection_prob=detection_rate,
+                    anomaly_score=state.anomaly_score,
+                )
+
+                states.append(state.to_tensor())
+                actions.append(action_idx)
+                rewards.append(reward)
+                log_probs.append(log_prob)
+
+                state = AttackState(
+                    detection_probability=detection_rate,
+                    anomaly_score=max(0.0, state.anomaly_score - 0.05),
+                    velocity_remaining=max(0.0, state.velocity_remaining - 0.1),
+                    amount_remaining=max(0.0, state.amount_remaining - 0.1),
+                    bypass_history=bypass,
+                )
+
+            # Real policy gradient step — this is what was missing.
+            agent.update(states, actions, rewards, states, old_log_probs=log_probs)
+
+            # Keep the best action found this epoch as the agent's strategy.
+            best_idx = int(np.argmin(detections))
+            self.best_actions[attack_type] = agent._action_from_index(actions[best_idx])
+
+            evasion = 1.0 - float(np.mean(detections))
+            self.scores[attack_type] = evasion
+            epoch_scores[attack_type] = evasion
+            self.history.setdefault(attack_type, []).append(round(evasion, 4))
+            self.episodes[attack_type] = self.episodes.get(attack_type, 0) + len(actions)
+
             agent.epsilon = max(agent.epsilon_min, agent.epsilon * agent.epsilon_decay)
+
+        self.epoch += 1
+        return epoch_scores
 
     def select_action_for_agent(self, agent, state):
         return agent.select_action(state, explore=True)
@@ -263,6 +404,29 @@ class MARLOrchestrator:
             strategy["evasion_score"] = round(score, 4)
             results.append(strategy)
         return results
+
+    def policy_distribution(self, attack_type: str) -> Dict[str, float]:
+        """Current action-selection probabilities for one agent."""
+        agent = self.agents[attack_type]
+        state = AttackState(
+            detection_probability=1.0 - self.scores.get(attack_type, 0.0),
+            anomaly_score=1.0 - agent.epsilon,
+            bypass_history=self.scores.get(attack_type, 0.0),
+        )
+        s_vec = state.to_tensor()
+        labels = ["split_count", "velocity_delay", "proxy_rotation",
+                  "amount_deviation", "geo_spread", "timing_jitter",
+                  "bio_mimicry"]
+        try:
+            if agent._use_torch:
+                with torch.no_grad():
+                    logits = agent.model.actor(torch.tensor(s_vec).unsqueeze(0))
+                    probs = F.softmax(logits, dim=-1).numpy().ravel()
+            else:
+                probs = agent.model._softmax(s_vec @ agent.model.W_actor)
+        except Exception:
+            probs = np.ones(len(labels)) / len(labels)
+        return {l: round(float(p), 4) for l, p in zip(labels, probs)}
 
     def get_all_strategies(self):
         return {

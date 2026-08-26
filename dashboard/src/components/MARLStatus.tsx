@@ -6,146 +6,139 @@ import { Bot, RotateCw, TrendingUp, Check, X, Shield, Activity, Cpu } from 'luci
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Area, AreaChart } from 'recharts';
 import { api, MARLAgent } from '@/lib/api';
 
-const DEFAULT_AGENTS = [
-  {
-    agent_id: 'synthetic-identity',
+// Presentation metadata only. Every number displayed in this panel comes from
+// the API (/api/marl/agents); nothing here is a placeholder metric. Before the
+// first evolution epoch the panel shows an explicit empty state rather than
+// inventing a curve.
+const AGENT_META: Record<string, { name: string; quote: string; avatarBg: string; iconColor: string }> = {
+  'synthetic-id': {
     name: 'Synthetic Identity',
-    rank: 2,
-    evasion_rate: 0.42,
-    delta_this_epoch: 2.1,
-    episodes_evaluated: 1247,
     quote: 'Gradual credit building with distributed KYC.',
-    strategy: 'Gradual credit building with distributed KYC.',
-    history: [0.12, 0.18, 0.25, 0.32, 0.30, 0.38, 0.35, 0.42, 0.40, 0.45, 0.42, 0.63],
-    min_evasion: 0.12,
-    max_evasion: 0.63,
-    avatarBg: 'bg-[#FFEDE4]',
-    iconColor: 'text-[#CF4500]',
-    policyActions: { 'Create Shell Account': 0.45, 'Synthetic SSN Pairing': 0.35, 'Micro-deposit Validation': 0.20 }
+    avatarBg: 'bg-[#FFEDE4]', iconColor: 'text-[#CF4500]',
   },
-  {
-    agent_id: 'multi-hop-cnp',
-    name: 'Multi-Hop CNP',
-    rank: 1,
-    evasion_rate: 0.51,
-    delta_this_epoch: 3.7,
-    episodes_evaluated: 2034,
-    quote: 'Adaptive path chaining with fallback merchants.',
-    strategy: 'Adaptive path chaining with fallback merchants.',
-    history: [0.15, 0.22, 0.31, 0.40, 0.38, 0.44, 0.42, 0.48, 0.46, 0.52, 0.49, 0.71],
-    min_evasion: 0.15,
-    max_evasion: 0.71,
-    avatarBg: 'bg-[#FEEAE8]',
-    iconColor: 'text-[#EB001B]',
-    policyActions: { 'Proxy Hop Rotation': 0.52, 'Merchant Category Shift': 0.28, 'Token Jitter': 0.20 }
+  'card-testing': {
+    name: 'Card Testing',
+    quote: 'Low-value probing across merchant categories.',
+    avatarBg: 'bg-[#FEEAE8]', iconColor: 'text-[#EB001B]',
   },
-  {
-    agent_id: 'prompt-injection',
-    name: 'Prompt Injection',
-    rank: 3,
-    evasion_rate: 0.35,
-    delta_this_epoch: 1.4,
-    episodes_evaluated: 987,
-    quote: 'Context probing with semantic obfuscation.',
-    strategy: 'Context probing with semantic obfuscation.',
-    history: [0.09, 0.14, 0.19, 0.22, 0.28, 0.25, 0.30, 0.29, 0.34, 0.32, 0.35, 0.58],
-    min_evasion: 0.09,
-    max_evasion: 0.58,
-    avatarBg: 'bg-[#F2EDFD]',
-    iconColor: 'text-[#6366F1]',
-    policyActions: { 'Adversarial Prompt Suffix': 0.48, 'Instruction Masking': 0.32, 'Recursive Querying': 0.20 }
+  'account-takeover': {
+    name: 'Account Takeover',
+    quote: 'Credential replay with session persistence.',
+    avatarBg: 'bg-[#F2EDFD]', iconColor: 'text-[#6366F1]',
   },
-  {
-    agent_id: 'voice-deepfake',
-    name: 'Voice Deepfake',
-    rank: 4,
-    evasion_rate: 0.38,
-    delta_this_epoch: 1.8,
-    episodes_evaluated: 1112,
-    quote: 'Voice cloning with background noise blending.',
-    strategy: 'Voice cloning with background noise blending.',
-    history: [0.11, 0.16, 0.24, 0.29, 0.27, 0.33, 0.31, 0.36, 0.34, 0.37, 0.38, 0.60],
-    min_evasion: 0.11,
-    max_evasion: 0.60,
-    avatarBg: 'bg-[#EBF3FE]',
-    iconColor: 'text-[#3860BE]',
-    policyActions: { 'Prosody Matching': 0.44, 'Acoustic Noise Layering': 0.36, 'Latent Phoneme Shift': 0.20 }
-  }
-];
+  'velocity-abuse': {
+    name: 'Velocity Abuse',
+    quote: 'Transaction splitting under rate thresholds.',
+    avatarBg: 'bg-[#EBF3FE]', iconColor: 'text-[#3860BE]',
+  },
+  'loyalty-fraud': {
+    name: 'Loyalty Fraud',
+    quote: 'Points arbitrage across redemption channels.',
+    avatarBg: 'bg-[#E8F7EF]', iconColor: 'text-[#0A8150]',
+  },
+  'credential-stuffing': {
+    name: 'Credential Stuffing',
+    quote: 'Distributed login attempts with proxy rotation.',
+    avatarBg: 'bg-[#FFF4E0]', iconColor: 'text-[#B26B00]',
+  },
+};
 
+interface UIAgent {
+  agent_id: string;
+  attack_type: string;
+  name: string;
+  quote: string;
+  avatarBg: string;
+  iconColor: string;
+  evasion_rate: number;
+  delta_this_epoch: number | null;
+  episodes_evaluated: number;
+  history: number[];
+  min_evasion: number | null;
+  max_evasion: number | null;
+  policyActions: Record<string, number>;
+  current_epsilon: number;
+}
+
+function toUIAgent(a: any): UIAgent {
+  const meta = AGENT_META[a.agent_id] ?? {
+    name: String(a.attack_type ?? a.agent_id).replace(/_/g, ' '),
+    quote: '',
+    avatarBg: 'bg-[#F1F1F1]',
+    iconColor: 'text-[#555]',
+  };
+  return {
+    agent_id: a.agent_id,
+    attack_type: a.attack_type ?? a.agent_id,
+    name: meta.name,
+    quote: meta.quote,
+    avatarBg: meta.avatarBg,
+    iconColor: meta.iconColor,
+    evasion_rate: a.evasion_rate ?? 0,
+    delta_this_epoch: a.delta_this_epoch ?? null,
+    episodes_evaluated: a.episodes_evaluated ?? 0,
+    history: Array.isArray(a.history) ? a.history : [],
+    min_evasion: a.min_evasion ?? null,
+    max_evasion: a.max_evasion ?? null,
+    policyActions: a.policy_actions ?? {},
+    current_epsilon: a.current_epsilon ?? 1,
+  };
+}
+
+// Conceptual escalation ladder used to frame what the agents are searching
+// over. This is illustrative taxonomy, not a claim about a reached stage —
+// the highlighted step is derived from the real epoch count below.
 const EVOLUTION_STAGES = [
-  { version: 'v1', name: 'Direct Card Testing', desc: 'Single merchant hits', active: false },
-  { version: 'v2', name: 'Merchant Rotation', desc: 'Simple path variation', active: false },
-  { version: 'v3', name: 'Distributed Chaining', desc: 'Multi-merchant paths', active: false },
-  { version: 'v4', name: 'Fallback Networks', desc: 'Redundant pathways', active: false },
-  { version: 'v5', name: 'Adaptive Ecosystem', desc: 'Learning & adaptation', active: true },
+  { version: 'v1', name: 'Direct Card Testing', desc: 'Single merchant hits' },
+  { version: 'v2', name: 'Merchant Rotation', desc: 'Simple path variation' },
+  { version: 'v3', name: 'Distributed Chaining', desc: 'Multi-merchant paths' },
+  { version: 'v4', name: 'Fallback Networks', desc: 'Redundant pathways' },
+  { version: 'v5', name: 'Adaptive Ecosystem', desc: 'Learning & adaptation' },
 ];
 
 export default function MARLStatus() {
-  const [agents, setAgents] = useState(DEFAULT_AGENTS);
+  const [agents, setAgents] = useState<UIAgent[]>([]);
   const [isEvolving, setIsEvolving] = useState(false);
-  const [evolutionEpoch, setEvolutionEpoch] = useState(42);
-  const [selectedAgentPolicy, setSelectedAgentPolicy] = useState<typeof DEFAULT_AGENTS[0] | null>(null);
+  const [evolutionEpoch, setEvolutionEpoch] = useState(0);
+  const [selectedAgentPolicy, setSelectedAgentPolicy] = useState<UIAgent | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  const loadAgents = async () => {
+    try {
+      const res = await api.getMARLAgents();
+      if (res?.agents?.length) {
+        setAgents(res.agents.map(toUIAgent));
+        setEvolutionEpoch(res.global_step ?? 0);
+        setError(null);
+      }
+    } catch (err) {
+      // Surface the failure instead of substituting invented numbers.
+      setError('Unable to reach the MARL service. No data shown.');
+    } finally {
+      setLoaded(true);
+    }
+  };
 
   useEffect(() => {
-    const fetchMARL = async () => {
-      try {
-        const res = await api.getMARLAgents();
-        if (res && res.agents && res.agents.length > 0) {
-          setAgents((prev) =>
-            prev.map((a) => {
-              const remote = res.agents.find((r: any) => r.agent_id === a.agent_id || r.attack_type === a.agent_id.replace(/-/g, '_'));
-              if (remote) {
-                return {
-                  ...a,
-                  episodes_evaluated: a.episodes_evaluated + (res.global_step || 1) * 10,
-                };
-              }
-              return a;
-            })
-          );
-        }
-      } catch (err) {
-        // use default state
-      }
-    };
-    fetchMARL();
+    loadAgents();
   }, []);
 
   const handleTriggerEvolution = async () => {
     setIsEvolving(true);
+    setError(null);
     try {
-      const res = await api.evolveMARL();
-      setEvolutionEpoch((prev) => prev + (res?.epochs_run || 1));
-      
-      setAgents((prev) =>
-        prev.map((agent) => {
-          const delta = +(Math.random() * 2.5 + 0.5).toFixed(1);
-          const newEvasion = Math.min(0.85, +(agent.evasion_rate + delta / 100).toFixed(2));
-          const newHistory = [...agent.history.slice(1), newEvasion];
-          return {
-            ...agent,
-            evasion_rate: newEvasion,
-            delta_this_epoch: delta,
-            episodes_evaluated: agent.episodes_evaluated + Math.floor(Math.random() * 120 + 40),
-            history: newHistory,
-            max_evasion: Math.max(...newHistory),
-          };
-        })
-      );
+      await api.evolveMARL(10);
+      // Re-read the authoritative state rather than extrapolating locally.
+      await loadAgents();
     } catch (err) {
-      setEvolutionEpoch((prev) => prev + 1);
-      setAgents((prev) =>
-        prev.map((agent) => ({
-          ...agent,
-          evasion_rate: Math.min(0.85, +(agent.evasion_rate + 0.02).toFixed(2)),
-          episodes_evaluated: agent.episodes_evaluated + 50,
-        }))
-      );
+      setError('Evolution request failed. Displayed values are unchanged.');
     } finally {
       setIsEvolving(false);
     }
   };
+
+  const hasData = agents.some((a) => a.history.length > 0);
 
   return (
     <div className="section-padding relative">
@@ -175,8 +168,26 @@ export default function MARLStatus() {
       </div>
 
       {/* 2x2 Agent Grid with Subtle Smooth Hover */}
+      {error && (
+        <div className="mb-6 rounded-2xl border border-[#EB001B]/30 bg-[#FEEAE8] px-5 py-3 text-sm text-[#8A0F1B] relative z-10">
+          {error}
+        </div>
+      )}
+
+      {loaded && !hasData && !error && (
+        <div className="mb-8 rounded-2xl border border-[var(--dust-taupe)] bg-[var(--soft-bone)] px-6 py-8 text-center relative z-10">
+          <p className="text-base font-medium text-[var(--ink-black)]">No evolution epochs recorded yet</p>
+          <p className="caption mt-1.5">
+            Run an epoch to populate these charts. Every value shown is measured against
+            the live detection model — nothing is pre-seeded.
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-7 mb-10 relative z-10">
-        {agents.map((agent) => (
+        {[...agents]
+          .sort((a, b) => b.evasion_rate - a.evasion_rate)
+          .map((agent, rankIndex) => (
           <motion.div 
             key={agent.agent_id} 
             whileHover={{ y: -3 }}
@@ -199,7 +210,7 @@ export default function MARLStatus() {
 
                 {/* Rank Badge */}
                 <span className="w-8 h-8 rounded-full bg-[var(--ink-black)] text-white text-xs font-bold flex items-center justify-center shadow-sm">
-                  #{agent.rank}
+                  #{rankIndex + 1}
                 </span>
               </div>
 
@@ -210,16 +221,27 @@ export default function MARLStatus() {
                     <span className="text-4xl font-medium text-[var(--ink-black)] tracking-tight">
                       {Math.round(agent.evasion_rate * 100)}%
                     </span>
-                    <span className="text-sm font-medium text-[var(--success-green)] flex items-center gap-0.5">
-                      ↑ +{agent.delta_this_epoch} this epoch
-                    </span>
+                    {agent.delta_this_epoch !== null && (
+                      <span
+                        className={`text-sm font-medium flex items-center gap-0.5 ${
+                          agent.delta_this_epoch >= 0
+                            ? 'text-[var(--success-green)]'
+                            : 'text-[#EB001B]'
+                        }`}
+                      >
+                        {agent.delta_this_epoch >= 0 ? '↑ +' : '↓ '}
+                        {(agent.delta_this_epoch * 100).toFixed(1)}pp this epoch
+                      </span>
+                    )}
                   </div>
                   <p className="stat-label mt-1">EVASION RATE</p>
                 </div>
 
                 {/* Sparkline with filled gradient */}
                 <div className="flex-1 max-w-[200px] flex flex-col items-end">
-                  <span className="text-[10px] text-[var(--slate-gray)] font-mono mb-1">max {agent.max_evasion.toFixed(2)}</span>
+                  <span className="text-[10px] text-[var(--slate-gray)] font-mono mb-1">
+                    {agent.max_evasion !== null ? `max ${agent.max_evasion.toFixed(2)}` : '—'}
+                  </span>
                   <div className="w-full h-14">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={agent.history.map((v, i) => ({ i, v }))}>
@@ -241,7 +263,9 @@ export default function MARLStatus() {
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
-                  <span className="text-[10px] text-[var(--slate-gray)] font-mono mt-1">min {agent.min_evasion.toFixed(2)}</span>
+                  <span className="text-[10px] text-[var(--slate-gray)] font-mono mt-1">
+                    {agent.min_evasion !== null ? `min ${agent.min_evasion.toFixed(2)}` : '—'}
+                  </span>
                 </div>
               </div>
 
@@ -275,7 +299,11 @@ export default function MARLStatus() {
 
       {/* Bottom Card: Strategy Evolution Timeline */}
       <div className="card-stadium p-8 border border-[rgba(20,20,19,0.04)] relative z-10">
-        <p className="eyebrow mb-8">TOP AGENT STRATEGY EVOLUTION (MULTI-HOP CNP)</p>
+        <p className="eyebrow mb-8">ADVERSARY ESCALATION LADDER — ILLUSTRATIVE</p>
+        <p className="caption -mt-6 mb-8">
+          Conceptual framing of the strategy space the agents search. Stage highlighting
+          tracks completed evolution epochs ({evolutionEpoch}); it is not a capability claim.
+        </p>
 
         <div className="relative">
           {/* Connecting Orange Orbital Arc Curve */}
@@ -289,7 +317,7 @@ export default function MARLStatus() {
           </svg>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-6 relative z-10">
-            {EVOLUTION_STAGES.map((stage) => (
+            {EVOLUTION_STAGES.map((stage, stageIdx) => (
               <motion.div 
                 key={stage.version} 
                 whileHover={{ y: -3 }}
@@ -297,19 +325,19 @@ export default function MARLStatus() {
               >
                 {/* Version badge */}
                 <div className={`mb-3 px-3 py-1 rounded-full text-xs font-bold ${
-                  stage.active ? 'bg-[var(--ink-black)] text-white' : 'bg-[var(--lifted-cream)] text-[var(--slate-gray)] border border-[var(--dust-taupe)]'
+                  (stageIdx < Math.min(EVOLUTION_STAGES.length, Math.floor(evolutionEpoch / 15) + (evolutionEpoch > 0 ? 1 : 0))) ? 'bg-[var(--ink-black)] text-white' : 'bg-[var(--lifted-cream)] text-[var(--slate-gray)] border border-[var(--dust-taupe)]'
                 }`}>
                   {stage.version}
                 </div>
 
                 {/* Center Circle Node */}
                 <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-3.5 transition-all duration-300 ${
-                  stage.active
+                  (stageIdx < Math.min(EVOLUTION_STAGES.length, Math.floor(evolutionEpoch / 15) + (evolutionEpoch > 0 ? 1 : 0)))
                     ? 'bg-[#FFEDE4] border-2 border-[var(--light-signal-orange)] shadow-md scale-105'
                     : 'bg-white border border-[var(--dust-taupe)] shadow-sm'
                 }`}>
                   <div className="w-8 h-8 rounded-full bg-[var(--light-signal-orange)]/20 flex items-center justify-center">
-                    <Activity className={`w-4 h-4 ${stage.active ? 'text-[#CF4500]' : 'text-[var(--slate-gray)]'}`} />
+                    <Activity className={`w-4 h-4 ${(stageIdx < Math.min(EVOLUTION_STAGES.length, Math.floor(evolutionEpoch / 15) + (evolutionEpoch > 0 ? 1 : 0))) ? 'text-[#CF4500]' : 'text-[var(--slate-gray)]'}`} />
                   </div>
                 </div>
 

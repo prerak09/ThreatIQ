@@ -47,23 +47,25 @@ export default function RedBlueArena({
   const [injectCount, setInjectCount] = useState(5);
   const [isInjecting, setIsInjecting] = useState(false);
   const [selectedTxPayload, setSelectedTxPayload] = useState<Transaction | null>(null);
+  const [injectError, setInjectError] = useState<string | null>(null);
 
   const handleInjectAttack = async () => {
     setIsInjecting(true);
+    setInjectError(null);
     try {
       const res = await api.injectAttack(selectedAttack, injectCount);
       if (res && res.results && res.results.length > 0) {
-        const mapped: Transaction[] = res.results.map((r: any) => ({
-          id: r.id || r.transaction_id || `TXN-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-          amount: r.amount || 2500,
-          currency: r.currency || 'USD',
-          channel: r.channel || r.auth_channel || 'tokenized',
+        const mapped: Transaction[] = res.results.map((r: any, idx: number) => ({
+          id: r.id ?? r.transaction_id ?? `TXN-${idx}`,
+          amount: r.amount ?? 0,
+          currency: r.currency ?? 'USD',
+          channel: r.channel ?? r.auth_channel ?? 'unknown',
           attack_type: r.attack_vector_id || r.attack_vector || selectedAttack.replace(/_/g, ' ').toUpperCase(),
-          status: r.status || (r.blue_team_flagged ? 'detected' : 'missed'),
+          status: r.status ?? (r.blue_team_flagged ? 'detected' : 'missed'),
           timestamp: Date.now(),
           is_fraud: true,
-          card_last4: r.card_last4 || '9901',
-          blue_team_confidence: r.blue_team_confidence || 0.88,
+          card_last4: r.card_last4 ?? '····',
+          blue_team_confidence: r.blue_team_confidence ?? null,
           blue_team_result: r.blue_team_result,
         }));
 
@@ -72,7 +74,9 @@ export default function RedBlueArena({
         mapped.forEach((m) => {
           if (m.status === 'detected' || m.status === 'blocked' || m.blue_team_result?.is_fraud) {
             detected++;
-            addedRoi += Math.round(m.amount * 120);
+            // Loss prevented = the value of the fraudulent transactions actually
+            // blocked. No multiplier: an invented factor is an invented number.
+            addedRoi += Math.round(m.amount);
           }
         });
 
@@ -81,22 +85,14 @@ export default function RedBlueArena({
         }
       }
     } catch (err) {
-      console.warn('Attack injection fallback:', err);
-      const mock: Transaction = {
-        id: `TXN-${Date.now().toString(36).toUpperCase()}`,
-        amount: Math.round(Math.random() * 8000 + 500),
-        currency: 'USD',
-        channel: 'e-commerce',
-        attack_type: selectedAttack.replace(/_/g, ' ').toUpperCase(),
-        status: Math.random() > 0.3 ? 'detected' : 'missed',
-        timestamp: Date.now(),
-        is_fraud: true,
-        card_last4: '7721',
-        blue_team_confidence: 0.87,
-      };
-      if (onAttackInjected) {
-        onAttackInjected(1, mock.status === 'detected' ? 1 : 0, 1500, [mock]);
-      }
+      // Never synthesise a transaction to cover an API failure — a demo that
+      // looks alive against a dead backend is worse than one that says so.
+      console.error('Attack injection failed:', err);
+      setInjectError(
+        err instanceof Error
+          ? `Injection failed: ${err.message}`
+          : 'Injection failed: the detection service did not respond.'
+      );
     } finally {
       setIsInjecting(false);
     }
@@ -107,6 +103,11 @@ export default function RedBlueArena({
 
   return (
     <div className="section-padding relative">
+      {injectError && (
+        <div className="mb-4 rounded-2xl border border-[#EB001B]/30 bg-[#FEEAE8] px-5 py-3 text-sm text-[#8A0F1B]">
+          {injectError}
+        </div>
+      )}
       {/* Quick Attack Injector Control Bar */}
       <motion.div 
         initial={{ opacity: 0, y: 10 }}

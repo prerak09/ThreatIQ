@@ -52,3 +52,5 @@ dicttoxml>=1.7.0
 # Async & Concurrency
 aiofiles>=23.0.0
 asyncio-throttle>=1.0.0
+# Test client (FastAPI TestClient)
+httpx>=0.24.0

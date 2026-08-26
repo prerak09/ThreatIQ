@@ -55,6 +55,7 @@ interface ArenaDashboardProps {
   totalAttacks?: number;
   detectedCount?: number;
   detectionRate?: number;
+  latencyMs?: number | null;
   roiAmount?: number;
   transactions?: Transaction[];
   onAttackInjected?: (injectedCount: number, detected: number, addedRoi: number, newTxs?: Transaction[]) => void;
@@ -70,7 +71,8 @@ export default function ArenaDashboard({
   totalProcessed = 0,
   totalAttacks = 0,
   detectedCount = 0,
-  detectionRate = 96.4,
+  detectionRate = 0,
+  latencyMs = null,
   roiAmount = 0,
   transactions = [],
   onAttackInjected,
@@ -147,6 +149,7 @@ export default function ArenaDashboard({
                 totalAttacks={totalAttacks}
                 detectedCount={detectedCount}
                 detectionRate={detectionRate}
+                latencyMs={latencyMs}
                 roiAmount={roiAmount}
                 transactions={transactions}
                 onStartSimulation={onStart}

@@ -31,6 +31,7 @@ interface OverviewPanelProps {
   totalAttacks: number;
   detectedCount: number;
   detectionRate: number;
+  latencyMs?: number | null;
   roiAmount: number;
   transactions: Transaction[];
   onStartSimulation: () => void;
@@ -45,11 +46,15 @@ const ATTACK_DISTRIBUTION = [
   { name: 'Credential Stuffing', value: 5, color: '#10B981' },
 ];
 
+// Engines in the serving ensemble, with their measured per-engine AUC from
+// benchmark.py (see README "Measured results"). The GNN is architecture-only:
+// it is not trained and is disabled at serving time, so it is listed as such
+// rather than carrying an invented accuracy.
 const ENSEMBLE_ENGINES = [
-  { name: 'XGBoost GBDT', role: 'Feature Scoring', accuracy: '98.2%', latency: '2.4ms', status: 'ONLINE', color: 'text-[var(--link-blue)]' },
-  { name: 'LightGBM Ensemble', role: 'Gradient Boosting', accuracy: '97.9%', latency: '2.1ms', status: 'ONLINE', color: 'text-[var(--link-blue)]' },
-  { name: 'Isolation Forest', role: 'Unsupervised Outlier', accuracy: '94.6%', latency: '1.8ms', status: 'ONLINE', color: 'text-[var(--light-signal-orange)]' },
-  { name: 'Temporal Graph Neural Net', role: 'Ring & Flow Detection', accuracy: '99.1%', latency: '5.5ms', status: 'ONLINE', color: 'text-[var(--success-green)]' },
+  { name: 'XGBoost GBDT', role: 'Supervised scoring', accuracy: 'AUC 0.971', latency: '~2ms', status: 'ACTIVE', color: 'text-[var(--link-blue)]' },
+  { name: 'LightGBM Ensemble', role: 'Gradient boosting', accuracy: 'AUC 0.968', latency: '~2ms', status: 'ACTIVE', color: 'text-[var(--link-blue)]' },
+  { name: 'Isolation Forest', role: 'Unsupervised outlier', accuracy: 'AUC 0.663', latency: '~2ms', status: 'ACTIVE', color: 'text-[var(--light-signal-orange)]' },
+  { name: 'Transaction GNN', role: 'Ring & flow detection', accuracy: 'not trained', latency: '—', status: 'DISABLED', color: 'text-[var(--slate-gray)]' },
 ];
 
 export default function OverviewPanel({
@@ -60,13 +65,14 @@ export default function OverviewPanel({
   totalAttacks,
   detectedCount,
   detectionRate,
+  latencyMs = null,
   roiAmount,
   transactions,
   onStartSimulation,
   onStopSimulation,
 }: OverviewPanelProps) {
   const legitimateCount = Math.max(0, totalProcessed - totalAttacks);
-  const legitimateRatio = totalProcessed > 0 ? ((legitimateCount / totalProcessed) * 100).toFixed(1) : '82.0';
+  const legitimateRatio = totalProcessed > 0 ? ((legitimateCount / totalProcessed) * 100).toFixed(1) : null;
   const fraudRatio = totalProcessed > 0 ? ((totalAttacks / totalProcessed) * 100).toFixed(1) : '18.0';
 
   return (
@@ -127,9 +133,9 @@ export default function OverviewPanel({
             {/* Split Progress Bar */}
             <div className="w-full bg-gray-100 rounded-full h-3.5 mb-3 flex overflow-hidden p-0.5">
               <div 
-                style={{ width: `${legitimateRatio}%` }} 
+                style={{ width: `${legitimateRatio ?? 0}%` }} 
                 className="bg-[var(--success-green)] h-full rounded-full transition-all duration-500" 
-                title={`Legitimate: ${legitimateRatio}%`}
+                title={`Legitimate: ${legitimateRatio ?? "—"}%`}
               />
               <div 
                 style={{ width: `${fraudRatio}%` }} 
@@ -141,7 +147,7 @@ export default function OverviewPanel({
             <div className="flex justify-between text-xs font-semibold font-mono">
               <span className="text-[var(--success-green)] flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-[var(--success-green)]" />
-                {legitimateCount.toLocaleString()} Legitimate ({legitimateRatio}%)
+                {legitimateCount.toLocaleString()} Legitimate ({legitimateRatio ?? "—"}%)
               </span>
               <span className="text-[var(--danger-red)] flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-[var(--danger-red)]" />
@@ -180,12 +186,14 @@ export default function OverviewPanel({
 
             <div className="p-3.5 bg-[var(--lifted-cream)] rounded-2xl border border-[var(--dust-taupe)]/30 text-xs flex justify-between">
               <span className="text-[var(--slate-gray)]">Average Decision Latency:</span>
-              <span className="font-bold text-[var(--ink-black)] font-mono">11.8 ms</span>
+              <span className="font-bold text-[var(--ink-black)] font-mono">
+                {typeof latencyMs === 'number' ? `${latencyMs.toFixed(1)} ms` : '—'}
+              </span>
             </div>
           </div>
 
           <div className="mt-6 pt-4 border-t border-[var(--dust-taupe)]/40 flex justify-between items-center text-xs">
-            <span className="text-[var(--slate-gray)]">Estimated ROI Prevented:</span>
+            <span className="text-[var(--slate-gray)]">Value of blocked fraud:</span>
             <span className="font-bold text-sm text-[var(--success-green)] font-mono">${roiAmount.toLocaleString()}</span>
           </div>
         </motion.div>
@@ -326,7 +334,7 @@ export default function OverviewPanel({
                   <Key className="w-5 h-5 text-[var(--success-green)]" />
                   <div>
                     <p className="font-semibold text-xs text-[var(--ink-black)]">ZKP Verification</p>
-                    <p className="caption text-[11px]">Groth16 BN254 · 192B Proofs</p>
+                    <p className="caption text-[11px]">Hash-commitment · 192B attestations</p>
                   </div>
                 </div>
                 <ArrowUpRight className="w-4 h-4 text-[var(--slate-gray)] group-hover:text-black transition-colors" />

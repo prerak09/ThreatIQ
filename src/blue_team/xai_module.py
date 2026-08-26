@@ -57,46 +57,91 @@ class SHAPExplainer:
 
     def explain_prediction(self, features: np.ndarray,
                            feature_names: Optional[List[str]] = None) -> np.ndarray:
-        """Compute feature importance for a single prediction."""
+        """Compute feature importance for a single prediction.
+
+        Returns a 1-D array with one attribution per feature. SHAP's output
+        shape depends on version and model type — a list per class in older
+        releases, and ``(n_samples, n_features, n_classes)`` in newer ones for
+        binary classifiers. Returning that unreduced produced a 2-D array and
+        made every downstream call (`get_top_features`, waterfall, force plot,
+        SAR generation) raise ``TypeError: only integer scalar arrays can be
+        converted to a scalar index``.
+        """
         x = features.reshape(1, -1) if features.ndim == 1 else features
         if self._use_shap and self._explainer is not None:
-            return self._explainer.shap_values(x)[0]
-        return self._permutation_fallback(x)
+            try:
+                return self._to_1d(self._explainer.shap_values(x), x.shape[1])
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("SHAP explanation failed (%s); using permutation fallback", exc)
+        return np.asarray(self._permutation_fallback(x)).reshape(-1)[: x.shape[1]]
+
+    @staticmethod
+    def _to_1d(vals: Any, n_features: int) -> np.ndarray:
+        """Reduce any SHAP output shape to one attribution per feature."""
+        # Older SHAP: list of per-class arrays. Take the positive class.
+        if isinstance(vals, list):
+            vals = vals[1] if len(vals) > 1 else vals[0]
+        arr = np.asarray(vals, dtype=float)
+
+        # (n_samples, n_features, n_classes) -> positive class of first sample
+        if arr.ndim == 3:
+            arr = arr[0, :, -1]
+        # (n_samples, n_features) -> first sample
+        elif arr.ndim == 2:
+            arr = arr[0] if arr.shape[0] == 1 else arr[:, -1]
+        arr = arr.reshape(-1)
+
+        if arr.size != n_features:
+            arr = np.resize(arr, n_features)
+        return arr
 
     def explain_batch(self, X_batch: np.ndarray,
                       feature_names: Optional[List[str]] = None) -> np.ndarray:
         """Compute feature importance for a batch."""
         if self._use_shap and self._explainer is not None:
-            vals = self._explainer.shap_values(X_batch)
-            return vals[0] if isinstance(vals, list) else vals
+            try:
+                vals = self._explainer.shap_values(X_batch)
+                if isinstance(vals, list):
+                    vals = vals[1] if len(vals) > 1 else vals[0]
+                arr = np.asarray(vals, dtype=float)
+                if arr.ndim == 3:          # (n, features, classes)
+                    arr = arr[:, :, -1]
+                return arr
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("SHAP batch explanation failed (%s); using fallback", exc)
         return self._permutation_fallback(X_batch)
 
     def get_top_features(self, shap_values: np.ndarray,
                          feature_names: Optional[List[str]] = None,
                          n: int = 10) -> List[Tuple[str, float]]:
         """Return top-n features by absolute importance."""
+        vals = np.asarray(shap_values, dtype=float).reshape(-1)
         if feature_names is None:
-            feature_names = [f"f{i}" for i in range(len(shap_values))]
-        indices = np.argsort(np.abs(shap_values))[::-1][:n]
-        return [(feature_names[i], float(shap_values[i])) for i in indices]
+            feature_names = [f"f{i}" for i in range(len(vals))]
+        indices = np.argsort(np.abs(vals))[::-1][:n]
+        return [(feature_names[int(i)], float(vals[int(i)])) for i in indices
+                if int(i) < len(feature_names)]
 
     def plot_waterfall(self, shap_values: np.ndarray,
                        feature_names: Optional[List[str]] = None) -> Dict[str, Any]:
         """Return waterfall plot data dict for JS visualization."""
+        vals = np.asarray(shap_values, dtype=float).reshape(-1)
         if feature_names is None:
-            feature_names = [f"f{i}" for i in range(len(shap_values))]
-        sorted_idx = np.argsort(np.abs(shap_values))[::-1]
+            feature_names = [f"f{i}" for i in range(len(vals))]
+        sorted_idx = [int(i) for i in np.argsort(np.abs(vals))[::-1]
+                      if int(i) < len(feature_names)]
         return {"features": [feature_names[i] for i in sorted_idx],
-                "values": [float(shap_values[i]) for i in sorted_idx],
+                "values": [float(vals[i]) for i in sorted_idx],
                 "base_value": 0.0}
 
     def plot_force(self, shap_values: np.ndarray,
                    feature_names: Optional[List[str]] = None) -> Dict[str, Any]:
         """Return force plot data dict for JS visualization."""
+        vals = np.asarray(shap_values, dtype=float).reshape(-1)
         if feature_names is None:
-            feature_names = [f"f{i}" for i in range(len(shap_values))]
-        return {"features": {feature_names[i]: float(shap_values[i])
-                             for i in range(len(shap_values))},
+            feature_names = [f"f{i}" for i in range(len(vals))]
+        n = min(len(vals), len(feature_names))
+        return {"features": {feature_names[i]: float(vals[i]) for i in range(n)},
                 "base_value": 0.0}
 
     def _permutation_fallback(self, X: np.ndarray) -> np.ndarray:

@@ -111,19 +111,20 @@ export interface Transaction {
 
 export interface MARLAgent {
   agent_id: string;
+  attack_type?: string;
   name?: string;
   role?: string;
-  attack_type?: string;
+  quote?: string;
   reward?: number;
   current_epsilon?: number;
   strategy?: any;
-  rank?: number;
   evasion_rate?: number;
   episodes_evaluated?: number;
-  quote?: string;
   history?: number[];
-  min_evasion?: number;
-  max_evasion?: number;
+  min_evasion?: number | null;
+  max_evasion?: number | null;
+  delta_this_epoch?: number | null;
+  policy_actions?: Record<string, number>;
   action_distribution?: Record<string, number>;
 }
 
@@ -262,11 +263,16 @@ export const api = {
   getFraudRings: () => fetchJson<{ rings: any[]; total_rings: number; total_nodes: number }>('/api/topology/rings'),
 
   // MARL Multi-Agent Reinforcement Learning
-  getMARLAgents: () => fetchJson<{ agents: any[]; global_step: number }>('/api/marl/agents'),
-  evolveMARL: () =>
-    fetchJson<{ evolved: boolean; epochs_run: number; history: any[] }>('/api/marl/evolve', {
-      method: 'POST',
-    }),
+  getMARLAgents: () =>
+    fetchJson<{ agents: MARLAgent[]; global_step: number; has_data: boolean }>('/api/marl/agents'),
+  evolveMARL: (epochs: number = 10) =>
+    fetchJson<{
+      evolved: boolean;
+      epochs_run: number;
+      global_epoch: number;
+      per_agent_evasion: Record<string, number>;
+      history: any[];
+    }>(`/api/marl/evolve?epochs=${epochs}`, { method: 'POST' }),
 
   // Activation Steering
   getSteeringConcepts: () => fetchJson<{ concepts: any[]; total: number }>('/api/steering/concepts'),

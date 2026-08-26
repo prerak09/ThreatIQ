@@ -133,15 +133,27 @@ class ZKProofGenerator:
         """Derived verification key (must match the verifier's vk)."""
         return hashlib.sha256(self.pk).digest()
 
+    @staticmethod
+    def _statement_digest(public_inputs: List[int], public_signals: List[int]) -> bytes:
+        """Canonical digest of the statement a proof is about."""
+        payload = json.dumps(
+            {"public_inputs": list(public_inputs), "public_signals": list(public_signals)},
+            sort_keys=True, separators=(",", ":"),
+        ).encode()
+        return hashlib.sha256(payload).digest()
+
     def generate_proof(self, private_inputs: List[int], public_inputs: List[int]) -> dict:
         t0 = time.time()
         public_signals = self.circuit.evaluate(private_inputs, public_inputs)
         vk = self.verification_key
         a = hashlib.sha256(json.dumps(private_inputs).encode() + self.pk).digest()
         b = hashlib.sha256(json.dumps(public_inputs).encode() + self.pk).digest()
-        # Verification key is bound into the proof so proofs can only be
-        # verified with the matching setup material.
-        c = hashlib.sha256(a + b + vk).digest()
+        # The statement digest binds the attestation to the specific public
+        # inputs and outputs.  Without it a proof verifies against *any*
+        # statement, which is the difference between an attestation and a
+        # decoration.
+        stmt = self._statement_digest(public_inputs, public_signals)
+        c = hashlib.sha256(a + b + stmt + vk).digest()
         return {
             "a": a.hex(), "b": b.hex(), "c": c.hex(),
             "public_signals": public_signals,
@@ -154,7 +166,7 @@ class ZKProofGenerator:
         private = weights + [h]
         public = features + [h]
         result = self.generate_proof(private, public)
-        result["simulated"] = True
+        result["synthetic_weights"] = True
         return result
 
 
@@ -166,14 +178,26 @@ class ZKVerifier:
         self.stats = {"total": 0, "valid": 0, "times": []}
 
     def verify(self, proof: dict, public_inputs: List[int]) -> bool:
+        """Check that ``proof`` attests to exactly ``public_inputs``.
+
+        Note on scope: this is a keyed hash-commitment attestation, not a
+        zk-SNARK.  It gives integrity and statement binding — a tampered proof
+        or a mismatched statement fails — but it is *not* succinct and it is
+        not sound against a party who holds the verification key.  Production
+        deployment would swap this module for Circom + snarkjs Groth16 over
+        BN254; the interface is kept identical so the swap is local.
+        """
         t0 = time.time()
         self.stats["total"] += 1
         try:
             a_bytes = bytes.fromhex(proof["a"])
             b_bytes = bytes.fromhex(proof["b"])
-            c_expected = hashlib.sha256(a_bytes + b_bytes + self.vk).digest()
+            stmt = ZKProofGenerator._statement_digest(
+                public_inputs, proof.get("public_signals", [])
+            )
+            c_expected = hashlib.sha256(a_bytes + b_bytes + stmt + self.vk).digest()
             valid = c_expected == bytes.fromhex(proof["c"])
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, TypeError):
             valid = False
         if valid:
             self.stats["valid"] += 1
@@ -232,21 +256,30 @@ class ZKPFraudSystem:
     def generate_verification_certificate(self) -> dict:
         return {
             "certificate_id": hashlib.sha256(token_bytes(32)).hexdigest()[:16],
-            "system": "Mastercard ZKP Fraud Detection v1.0",
+            "system": "ThreatIQ Screening Attestation v1.0",
             "circuit": self.circuit.circuit_name,
             "circuit_constraints": len(self.circuit.constraints),
             "verification_key_hash": hashlib.sha256(self.verifier.vk).hexdigest(),
             "timestamp": int(time.time()),
-            "proof_type": "groth16-simulated"
+            "is_zk_snark": False,
+            "disclaimer": (
+                "Keyed hash-commitment attestation. Provides integrity and "
+                "statement binding, NOT zero-knowledge succinctness or "
+                "soundness against a verification-key holder. Production path: "
+                "Circom + snarkjs Groth16 over BN254."
+            ),
+            "proof_type": "hash-commitment-attestation"
         }
 
     def explain_to_merchant(self) -> str:
         return (
-            "This Zero-Knowledge Proof proves that: (1) The fraud detection model "
+            "This screening attestation demonstrates that: (1) The fraud detection model "
             "was applied correctly to your transaction features, (2) The model weights "
             "match the committed hash, ensuring no tampering, (3) The fraud score "
             "determination (fraud/not-fraud) is accurate. All without revealing the "
-            "proprietary model weights or intermediate computations."
+            "proprietary model weights or intermediate computations. "
+            "It is a hash-commitment scheme, not a zk-SNARK — see the "
+            "certificate disclaimer for the production upgrade path."
         )
 
 

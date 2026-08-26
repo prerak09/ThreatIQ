@@ -71,7 +71,9 @@ const DEFAULT_SARS: SARItem[] = [
       account: '****1102',
       risk_level: 'HIGH',
     },
-    summary: 'Successfully filed with FinCEN. BSA/AML e-Filing confirmation #BSA-2026-99214.',
+    // Demonstration record. ThreatIQ prepares FinCEN Form 111 content; it has
+    // no BSA e-Filing connection, so no confirmation number is shown.
+    summary: 'Queued for BSA e-Filing. Demonstration record — not transmitted to FinCEN.',
     narrative:
       'Coordinated physical ATM withdrawal sweeps across 8 metropolitan terminals using cloned magstripe credentials.',
     risk_factors: [

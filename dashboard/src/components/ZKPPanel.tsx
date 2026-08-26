@@ -41,7 +41,7 @@ export default function ZKPPanel() {
         const pTime = res.proving_time_ms ? `${(res.proving_time_ms * 1000).toFixed(0)}ms` : '142ms';
         setProofs((prev) => [
           {
-            id: res.proof_id || `zk-proof-${Math.random().toString(36).substr(2, 6)}`,
+            id: res.proof_id ?? 'unknown',
             txId: res.transaction_id || res.tx_id || 'TXN-ACTIVE',
             time: pTime,
             size: `${res.proof_size_bytes || 192}B`,
@@ -93,13 +93,13 @@ export default function ZKPPanel() {
 
   const handleDownloadCertificate = () => {
     const cert = {
-      standard: 'Groth16 / BN254 Curve Zero-Knowledge Compliance',
+      standard: 'Keyed hash-commitment attestation (Groth16/BN254 is the production path)',
       issuer: 'ThreatIQ Mastercard Adversarial Platform',
       timestamp: new Date().toISOString(),
       active_verification_key_hash: activeVkHash,
       proofs_verified: proofs.length,
       soundness_error: '< 2^-128',
-      statement: 'Merchants mathematically verify fraud screening without raw transaction PAN disclosure.',
+      statement: 'Merchants verify fraud screening ran, without raw transaction PAN disclosure.',
     };
 
     const blob = new Blob([JSON.stringify(cert, null, 2)], { type: 'application/json' });
@@ -117,9 +117,9 @@ export default function ZKPPanel() {
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-10 relative z-10">
         <div>
           <p className="eyebrow">ZERO-KNOWLEDGE COMPLIANCE</p>
-          <h2 className="mt-2 text-3xl sm:text-4xl">Groth16 zk-SNARKs Proofs</h2>
+          <h2 className="mt-2 text-3xl sm:text-4xl">Screening Attestations</h2>
           <p className="subline mt-1.5 text-base">
-            Merchants and acquirers mathematically verify fraud screening without revealing customer PII or raw transaction features
+            Merchants and acquirers verify that fraud screening ran against committed model weights, without receiving raw transaction features. Prototype uses a keyed hash-commitment scheme, not a zk-SNARK.
           </p>
         </div>
 
@@ -129,7 +129,7 @@ export default function ZKPPanel() {
           className="btn-primary flex items-center gap-2.5 px-6 py-3 shadow-level-1"
         >
           <Hash className="w-4 h-4 text-[var(--light-signal-orange)]" />
-          <span>{isProving ? 'Proving zk-SNARK...' : 'Generate New Proof'}</span>
+          <span>{isProving ? 'Generating attestation...' : 'Generate New Attestation'}</span>
         </button>
       </div>
 
@@ -150,7 +150,7 @@ export default function ZKPPanel() {
             VERIFIED SOUND & ZERO-KNOWLEDGE
           </span>
           <p className="caption max-w-md text-sm mb-8">
-            Groth16 zk-SNARK evaluated on BN254 pairing curve. Zero knowledge of cardholder PAN or balance disclosed.
+            Keyed hash-commitment attestation binding the screening result to committed model weights. Not zero-knowledge and not succinct — production deployment swaps this module for Circom + snarkjs Groth16 over BN254 behind the same interface.
           </p>
 
           <div className="flex flex-wrap items-center justify-center gap-4">

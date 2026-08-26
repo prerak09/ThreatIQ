@@ -47,17 +47,65 @@ class AttackerAgent:
     payment system defenses with high fidelity.
     """
 
+    # Sophistication tiers.  Real fraud is a mixture: a large tail of crude,
+    # easily-caught attempts and a small head of operators who deliberately
+    # mimic legitimate behaviour.  A detector that only ever sees the crude
+    # tail reports a meaningless 100% recall, so the mixture is explicit.
+    #
+    #   weight : share of fraudulent traffic in this tier
+    #   bio    : behavioural-biometrics range (legit users sit in 0.30-0.99,
+    #            so ADVANCED overlaps legitimate traffic almost completely)
+    #   amt    : multiplier applied to the victim-typical amount band
+    #   hours  : hours of day the tier prefers
+    SOPHISTICATION_TIERS = {
+        "naive":        {"weight": 0.45, "bio": (0.10, 0.45), "amt": (1.4, 4.0),  "hours": "odd"},
+        "intermediate": {"weight": 0.35, "bio": (0.35, 0.72), "amt": (0.8, 1.8),  "hours": "mixed"},
+        "advanced":     {"weight": 0.20, "bio": (0.58, 0.96), "amt": (0.4, 1.2),  "hours": "normal"},
+    }
+
     def __init__(
         self,
         attack_vectors: List[AttackVector],
         proxy_pool_size: int = 100,
-        fraud_amount_range: tuple = (5.0, 500.0)
+        fraud_amount_range: tuple = (5.0, 500.0),
+        num_rings: int = 12,
     ):
         self.attack_vectors = attack_vectors
         self.proxy_pool_size = proxy_pool_size
         self.fraud_amount_range = fraud_amount_range
         self._card_cache: List[Dict] = []
         self._ip_pool: List[str] = self._generate_ip_pool()
+
+        self._tier_names = list(self.SOPHISTICATION_TIERS.keys())
+        self._tier_weights = [self.SOPHISTICATION_TIERS[t]["weight"] for t in self._tier_names]
+
+        # Fraud rings: clusters of transactions that deliberately share
+        # infrastructure (device fingerprints, card BINs, IP subnets).  This is
+        # the signal the graph/ring detector is supposed to find; without it
+        # the topology view is permanently empty.
+        self._rings = self._build_rings(num_rings)
+        self.tier_counts: Dict[str, int] = {t: 0 for t in self._tier_names}
+
+    def _build_rings(self, n: int) -> List[Dict[str, Any]]:
+        rings = []
+        for i in range(max(1, n)):
+            subnet = f"{random.randint(1,223)}.{random.randint(0,255)}.{random.randint(0,255)}"
+            rings.append({
+                "ring_id": f"RING-{i:03d}",
+                "devices": [
+                    hashlib.md5(f"ring{i}-dev{d}".encode()).hexdigest()[:16]
+                    for d in range(random.randint(2, 5))
+                ],
+                "bin": random.choice(["411111", "555555", "378282", "601111"]),
+                "subnet": subnet,
+                "home_region": random.choice(["US", "EU", "APAC", "LATAM"]),
+            })
+        return rings
+
+    def _select_tier(self) -> str:
+        tier = random.choices(self._tier_names, weights=self._tier_weights, k=1)[0]
+        self.tier_counts[tier] = self.tier_counts.get(tier, 0) + 1
+        return tier
 
     def _generate_ip_pool(self) -> List[str]:
         """Generate realistic IP address pool"""
@@ -107,19 +155,44 @@ class AttackerAgent:
         weights = [v.risk_level.value * v.fidelity_score for v in self.attack_vectors]
         return random.choices(self.attack_vectors, weights=weights, k=1)[0]
 
-    def _generate_fraud_amount(self, vector: AttackVector) -> float:
-        """Generate fraud amount based on attack type"""
+    def _generate_fraud_amount(self, vector: AttackVector, tier: str = "naive") -> float:
+        """Generate a fraud amount for an attack vector at a sophistication tier.
+
+        The base band is category-specific, then scaled by the tier multiplier.
+        Advanced operators keep amounts inside the legitimate band on purpose,
+        so amount alone is not a separating feature.
+        """
         if vector.category == AttackCategory.MULTI_HOP_CNP:
-            # Micro-transactions for CNP relay
-            return round(random.uniform(5.0, 50.0), 2)
+            base = random.uniform(5.0, 120.0)
         elif vector.category == AttackCategory.SYNTHETIC_IDENTITY:
-            # Higher amounts for identity fraud
-            return round(random.uniform(100.0, 2000.0), 2)
+            base = random.uniform(60.0, 900.0)
         elif vector.category == AttackCategory.PROMPT_INJECTION:
-            # Variable amounts based on injection success
-            return round(random.uniform(50.0, 500.0), 2)
+            base = random.uniform(40.0, 400.0)
         else:
-            return round(random.uniform(*self.fraud_amount_range), 2)
+            base = random.uniform(*self.fraud_amount_range)
+
+        lo, hi = self.SOPHISTICATION_TIERS[tier]["amt"]
+        amount = base * random.uniform(lo, hi)
+        return round(max(1.0, min(10_000.0, amount)), 2)
+
+    @staticmethod
+    def _tier_hour(mode: str) -> int:
+        """Sample an hour of day for a sophistication tier.
+
+        'normal' deliberately reuses the legitimate peak hours so timing is
+        not a giveaway for advanced operators.
+        """
+        if mode == "odd":
+            weights = [6, 7, 8, 7, 6, 5, 3, 2, 2, 2, 2, 2,
+                       2, 2, 2, 2, 2, 2, 2, 3, 3, 4, 5, 6]
+        elif mode == "normal":
+            weights = [1, 1, 1, 1, 1, 1, 2, 3, 4, 6, 8, 9,
+                       9, 8, 7, 5, 5, 6, 8, 8, 7, 5, 3, 2]
+        else:  # mixed
+            weights = [3, 3, 3, 3, 3, 3, 4, 4, 5, 5, 5, 5,
+                       5, 5, 5, 4, 4, 4, 5, 5, 5, 4, 4, 3]
+        total = sum(weights)
+        return int(np.random.choice(24, p=[w / total for w in weights]))
 
     def _generate_geo_location(self, base_region: str = "US") -> tuple:
         """Generate geographically consistent coordinates"""
@@ -149,31 +222,66 @@ class AttackerAgent:
             Transaction with malicious patterns
         """
         vector = self._select_attack_vector()
-        amount = self._generate_fraud_amount(vector)
-        geo_lat, geo_long = self._generate_geo_location()
-        
-        # Behavioral biometrics score (lower = more suspicious)
-        bio_score = random.uniform(0.1, 0.4)  # Fraud tends to have lower scores
-        
-        # Generate auth channel based on attack type
+        tier = self._select_tier()
+        tier_cfg = self.SOPHISTICATION_TIERS[tier]
+        amount = self._generate_fraud_amount(vector, tier)
+
+        # A fraction of fraud is ring activity sharing device/BIN/subnet.
+        ring = random.choice(self._rings) if random.random() < 0.6 else None
+        region = ring["home_region"] if ring else "US"
+        geo_lat, geo_long = self._generate_geo_location(region)
+
+        # Behavioural biometrics: tier-dependent, and deliberately overlapping
+        # the legitimate range for intermediate/advanced operators.
+        bio_lo, bio_hi = tier_cfg["bio"]
+        bio_score = random.uniform(bio_lo, bio_hi)
+
+        # Generate auth channel based on attack type.  Advanced operators
+        # prefer the same channels legitimate users do.
         if vector.category == AttackCategory.VOICE_DEEPFAKE:
             auth_channel = "voice_biometric"
+        elif tier == "advanced":
+            auth_channel = random.choice(
+                ["card_present", "card_not_present", "tokenized", "biometric"]
+            )
         elif vector.category == AttackCategory.SYNTHETIC_IDENTITY:
             auth_channel = random.choice(["biometric", "pin", "otp"])
         else:
             auth_channel = random.choice(["card_present", "card_not_present", "tokenized"])
 
-        tx_timestamp = timestamp or datetime.now()
+        if timestamp is not None:
+            tx_timestamp = timestamp
+        else:
+            tx_timestamp = datetime.now().replace(
+                hour=self._tier_hour(tier_cfg["hours"]),
+                minute=random.randint(0, 59),
+                second=random.randint(0, 59),
+            )
+
+        if ring is not None:
+            device_fp = random.choice(ring["devices"])
+            ip_address = f"{ring['subnet']}.{random.randint(1, 254)}"
+            card_last4 = f"{random.randint(0, 9999):04d}"
+        else:
+            device_fp = self._generate_device_fingerprint()
+            ip_address = random.choice(self._ip_pool)
+            card_last4 = self._generate_card_number()[-4:]
+
+        # Advanced operators shop in ordinary merchant categories.
+        if tier == "advanced":
+            mcc = random.choice(["5411", "5812", "5999", "4121"])
+        else:
+            mcc = random.choice(["5411", "5412", "5812", "5999", "4121", "6011", "7995"])
         
         transaction = Transaction(
             transaction_id=f"TXN-{hashlib.md5(f'{time.time()}-{random.random()}'.encode()).hexdigest()[:12].upper()}",
             timestamp=tx_timestamp.isoformat(),
             amount=amount,
             currency=random.choice(["USD", "EUR", "GBP", "JPY"]),
-            merchant_category_code=random.choice(["5411", "5412", "5812", "5999", "4121"]),
-            card_number_last4=self._generate_card_number()[-4:],
-            device_fingerprint=self._generate_device_fingerprint(),
-            ip_address=random.choice(self._ip_pool),
+            merchant_category_code=mcc,
+            card_number_last4=card_last4,
+            device_fingerprint=device_fp,
+            ip_address=ip_address,
             geo_lat=geo_lat,
             geo_long=geo_long,
             auth_channel=auth_channel,
@@ -182,6 +290,8 @@ class AttackerAgent:
             attack_vector_id=vector.vector_id,
             raw_payload_logs={
                 "attack_category": vector.category.value,
+                "sophistication_tier": tier,
+                "ring_id": ring["ring_id"] if ring else None,
                 "evasion_technique": random.choice(
                     [s.evasion_technique for s in vector.execution_steps if s.evasion_technique]
                 ),
@@ -291,10 +401,16 @@ class VictimAgent:
         
         # Generate amount with Benford's Law
         amount = self._generate_benford_amount()
-        
-        # Keep within user's typical range
+
+        # Keep within user's typical range …
         low, high = profile["typical_amount_range"]
         amount = max(low, min(high, amount))
+
+        # … except for occasional genuine large purchases, which are exactly
+        # the transactions a naive amount threshold gets wrong.
+        if random.random() < 0.06:
+            amount = round(amount * random.uniform(3.0, 12.0), 2)
+        amount = min(amount, 10_000.0)
         
         # Generate device fingerprint
         device_fp = hashlib.md5(
@@ -308,12 +424,23 @@ class VictimAgent:
             "APAC": (35.6762, 139.6503, 3.0),
             "LATAM": (-15.7975, -47.8919, 4.0)
         }
-        lat, long, spread = regions.get(profile["home_region"], regions["US"])
+        # ~5% of legitimate traffic is a travelling cardholder — a real source
+        # of false positives for any geo-distance rule.
+        region = profile["home_region"]
+        if random.random() < 0.05:
+            region = random.choice([r for r in regions if r != profile["home_region"]])
+        lat, long, spread = regions.get(region, regions["US"])
         geo_lat = round(lat + random.gauss(0, spread), 6)
         geo_long = round(long + random.gauss(0, spread), 6)
         
-        # High behavioral biometrics for legitimate users
-        bio_score = random.uniform(0.7, 0.99)
+        # Behavioural biometrics for legitimate users.  Most sessions score
+        # well, but a real population has a genuine left tail: new devices,
+        # borrowed phones, injured hands, poor connectivity.  Without that tail
+        # the score separates fraud perfectly and the benchmark is worthless.
+        if random.random() < 0.18:
+            bio_score = random.uniform(0.30, 0.70)   # atypical-but-legitimate
+        else:
+            bio_score = random.uniform(0.65, 0.99)
         
         transaction = Transaction(
             transaction_id=f"TXN-{hashlib.md5(f'{time.time()}-{random.random()}'.encode()).hexdigest()[:12].upper()}",
