@@ -1,11 +1,7 @@
 <div align="center">
 
-<!-- ══ IMAGE 1 · HERO BANNER ═══════════════════════════════════════════════
-     Prompt:   docs/IMAGE_PROMPTS.md  →  "Image 1"
-     Save as:  docs/images/01-hero.png          (1200 x 300)
-     Then delete this comment block and uncomment the line below.
-<img src="docs/images/01-hero.png" alt="ThreatIQ" width="100%" />
-════════════════════════════════════════════════════════════════════════ -->
+<img width="2743" height="872" alt="Frame 13 (3)" src="https://github.com/user-attachments/assets/e1ee2932-d7c0-45e6-a5f1-f9e6e41f4f7d" />
+
 
 # ThreatIQ
 
@@ -37,6 +33,8 @@ Partway through building this, we discovered our own test was too easy, and that
 ---
 
 ## The mistake we caught, and why it matters
+<img width="1536" height="1024" alt="ChatGPT Image Aug 31, 2026, 08_51_23 PM" src="https://github.com/user-attachments/assets/31884c94-6acd-455b-a4f4-0710c76aef0c" />
+
 
 <!-- ══ IMAGE 2 · BENCHMARK VALIDITY CHART ══════════════════════════════════
      Prompt:   docs/IMAGE_PROMPTS.md  →  "Image 2"
@@ -61,6 +59,8 @@ We also made this impossible to repeat quietly. The benchmark prints the simple 
 ---
 
 ## We checked our work on real fraud
+<img width="1536" height="1024" alt="ChatGPT Image Aug 31, 2026, 08_53_09 PM" src="https://github.com/user-attachments/assets/b2981d51-84d0-41e7-b0bf-0e192ae28d18" />
+
 
 <!-- ══ IMAGE 3 · REAL DATA ALERT BUDGET CURVE ══════════════════════════════
      Prompt:   docs/IMAGE_PROMPTS.md  →  "Image 3"
@@ -85,6 +85,8 @@ Five staff catching three quarters of all fraud, with four out of five alerts ge
 ---
 
 ## Why it matters how rare fraud is
+<img width="1536" height="1024" alt="ChatGPT Image Aug 31, 2026, 08_54_04 PM" src="https://github.com/user-attachments/assets/ad62fa0d-1a42-4390-a36c-791eecdf16c7" />
+
 
 <!-- ══ IMAGE 4 · PRECISION VS PREVALENCE CURVE ═════════════════════════════
      Prompt:   docs/IMAGE_PROMPTS.md  →  "Image 4"
@@ -132,6 +134,8 @@ Six new ways criminals use AI against payments, across eight categories, each ma
 | `ATK-006` | Learning the limits | Works out a bank's spending limits, then stays just underneath | Medium |
 
 ### 2. Recreate
+<img width="1536" height="1024" alt="ChatGPT Image Aug 31, 2026, 08_56_16 PM" src="https://github.com/user-attachments/assets/8cd958a6-9fac-4c65-a13e-523af08b2e7d" />
+
 
 <!-- ══ IMAGE 6 · THE THREE ATTACKER TYPES ══════════════════════════════════
      Prompt:   docs/IMAGE_PROMPTS.md  →  "Image 6"
@@ -147,11 +151,14 @@ Six new ways criminals use AI against payments, across eight categories, each ma
 | Average | 35% | 0.35 to 0.72 | Slightly larger | Mixed |
 | **Skilled** | 20% | **0.58 to 0.96** | Normal | **Normal shopping hours** |
 
+
 <!-- ══ IMAGE 7 · RECALL BY ATTACKER SKILL CHART ════════════════════════════
      Prompt:   docs/IMAGE_PROMPTS.md  →  "Image 7"
      Save as:  docs/images/07-attacker-skill.png       (16:9)
 <img src="docs/images/07-attacker-skill.png" alt="How much fraud we catch, by attacker skill" width="100%" />
 ════════════════════════════════════════════════════════════════════════ -->
+<img width="1536" height="1024" alt="ChatGPT Image Aug 31, 2026, 08_57_05 PM" src="https://github.com/user-attachments/assets/5ed683c5-a03d-408f-8703-54446e5e87a5" />
+
 
 Real customers score 0.30 to 0.99, so skilled attackers sit almost completely inside the normal range. **We catch 98% of clumsy fraud and only 50% of skilled fraud.** We put that front and centre rather than hiding it. AI has not mainly made fraud more common, it has made *looking like a normal customer* cheap.
 
@@ -185,6 +192,8 @@ We list the fourth honestly. It is built but untrained and disabled, so it contr
      Save as:  docs/images/09-bots-learning.png        (16:9)
 <img src="docs/images/09-bots-learning.png" alt="The attacker bots really do learn" width="100%" />
 ════════════════════════════════════════════════════════════════════════ -->
+<img width="1536" height="1024" alt="ChatGPT Image Aug 31, 2026, 08_59_25 PM" src="https://github.com/user-attachments/assets/1138c629-0fe4-4194-bef4-ecc5fd1112c7" />
+
 
 When you press "run a training round" in the app:
 
@@ -207,6 +216,8 @@ The bots keep what worked and build on it. One thing they can invest in is **imi
      Save as:  docs/images/10-drift.png                (16:9)
 <img src="docs/images/10-drift.png" alt="Fraud patterns change within 48 hours" width="100%" />
 ════════════════════════════════════════════════════════════════════════ -->
+<img width="1536" height="1024" alt="ChatGPT Image Aug 31, 2026, 09_00_24 PM" src="https://github.com/user-attachments/assets/bed41d81-ea1b-4d99-9666-cd4233403afb" />
+
 
 Real data shows a detector that is never updated gets noticeably worse **within two days**. But updating a live detector is dangerous, and we learned this the hard way: one unguarded retraining run using 20 examples took the share of genuine alerts from **86% down to 24%**.
 
@@ -247,6 +258,7 @@ cd dashboard && npm install && npm run dev      # dashboard on :3000
      Save as:  docs/images/11-dashboard.png
 <img src="docs/images/11-dashboard.png" alt="The ThreatIQ dashboard" width="100%" />
 ════════════════════════════════════════════════════════════════════════ -->
+<img width="1162" height="423" alt="image" src="https://github.com/user-attachments/assets/36a7f72e-5379-4d69-b9b0-a4e4ee749b95" />
 
 ---
 
