@@ -500,13 +500,22 @@ class FraudDetectionModel:
         X = features.reshape(1, -1) if features.ndim == 1 else features
         X_scaled = self._scaler.transform(X)
 
+        # This map was previously built with a loop keyed on
+        # `scorer is self._score_xgb`. Attribute access creates a *new* bound
+        # method object each time, so that identity test is always False and
+        # both engines were written to the "lgb" key — XGBoost, by far the
+        # strongest engine, was silently overwritten and never reached the
+        # ensemble. predict() builds its map with explicit keys and was
+        # unaffected, so evaluation and live serving ran different models.
         score_map: Dict[str, np.ndarray] = {
             "iforest": self._score_isolation_forest(X_scaled)
         }
-        for scorer in (self._score_xgb, self._score_lgb):
-            s = scorer(X_scaled)
-            if s is not None:
-                score_map["xgb" if scorer is self._score_xgb else "lgb"] = s
+        xgb_score = self._score_xgb(X_scaled)
+        if xgb_score is not None:
+            score_map["xgb"] = xgb_score
+        lgb_score = self._score_lgb(X_scaled)
+        if lgb_score is not None:
+            score_map["lgb"] = lgb_score
         gnn_score = self._score_gnn(X_scaled, edge_index)
         if gnn_score is not None:
             score_map["gnn"] = gnn_score
