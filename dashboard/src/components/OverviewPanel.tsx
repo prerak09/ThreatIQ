@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   ShieldCheck, 
@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { TabId } from './ArenaDashboard';
-import { Transaction } from '@/lib/api';
+import { Transaction, api } from '@/lib/api';
 
 interface OverviewPanelProps {
   onSelectTab: (tab: TabId) => void;
@@ -38,13 +38,22 @@ interface OverviewPanelProps {
   onStopSimulation: () => void;
 }
 
-const ATTACK_DISTRIBUTION = [
-  { name: 'Multi-Hop CNP', value: 38, color: '#F37338' },
-  { name: 'Synthetic Identity', value: 27, color: '#EB001B' },
-  { name: 'Prompt Injection', value: 18, color: '#6366F1' },
-  { name: 'Voice Deepfake', value: 12, color: '#3860BE' },
-  { name: 'Credential Stuffing', value: 5, color: '#10B981' },
-];
+// Colours only. The shares themselves are read from /api/threats/statistics
+// at runtime; they used to be hardcoded here and did not match the taxonomy
+// the backend actually generates.
+const CATEGORY_COLORS: Record<string, string> = {
+  multi_hop_cnp: '#F37338',
+  synthetic_identity: '#EB001B',
+  prompt_injection: '#6366F1',
+  voice_deepfake: '#3860BE',
+  merchant_api_abuse: '#10B981',
+  velocity_evasion: '#B26B00',
+  account_takeover: '#0A8150',
+  geo_spoofing: '#8A5CF6',
+};
+
+const prettyCategory = (k: string) =>
+  k.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
 // Engines in the serving ensemble, with their measured per-engine AUC from
 // benchmark.py (see README "Measured results"). The GNN is architecture-only:
@@ -71,6 +80,53 @@ export default function OverviewPanel({
   onStartSimulation,
   onStopSimulation,
 }: OverviewPanelProps) {
+  // Live platform state. These panels previously showed hardcoded strings
+  // ("Epoch #42 · 4 Bots Evolving", "10 Bank Nodes · DP e=9.5") that
+  // contradicted what the MARL and Federated tabs reported on the same site.
+  const [attackMix, setAttackMix] = useState<{ name: string; value: number; color: string }[]>([]);
+  const [marlInfo, setMarlInfo] = useState<{ epoch: number; agents: number } | null>(null);
+  const [fedInfo, setFedInfo] = useState<{ banks: number; round: number } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const stats: any = await api.getThreatStatistics();
+        const byCat: Record<string, number> = stats?.by_category ?? {};
+        const total = Object.values(byCat).reduce((a: number, b: any) => a + Number(b), 0);
+        if (!cancelled && total > 0) {
+          setAttackMix(
+            Object.entries(byCat)
+              .filter(([, v]) => Number(v) > 0)
+              .map(([k, v]) => ({
+                name: prettyCategory(k),
+                value: Math.round((Number(v) / total) * 100),
+                color: CATEGORY_COLORS[k] ?? '#6B6B68',
+              }))
+              .sort((a, b) => b.value - a.value)
+          );
+        }
+      } catch { /* leave empty; the card renders an explicit empty state */ }
+
+      try {
+        const marl: any = await api.getMARLAgents();
+        if (!cancelled && marl) {
+          setMarlInfo({ epoch: marl.global_step ?? 0, agents: marl.agents?.length ?? 0 });
+        }
+      } catch { /* ignore */ }
+
+      try {
+        const fed: any = await api.getFederatedStatus();
+        if (!cancelled && fed) {
+          setFedInfo({ banks: fed.banks ?? 0, round: fed.current_round ?? 0 });
+        }
+      } catch { /* ignore */ }
+    };
+    load();
+    const id = setInterval(load, 15000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
   const legitimateCount = Math.max(0, totalProcessed - totalAttacks);
   const legitimateRatio = totalProcessed > 0 ? ((legitimateCount / totalProcessed) * 100).toFixed(1) : null;
   const fraudRatio = totalProcessed > 0 ? ((totalAttacks / totalProcessed) * 100).toFixed(1) : '18.0';
@@ -125,7 +181,11 @@ export default function OverviewPanel({
           <div>
             <div className="flex items-center justify-between mb-4">
               <span className="eyebrow">NETWORK TRAFFIC SPLIT</span>
-              <span className="status-chip success text-[11px]">82/18 RATIO</span>
+              <span className="status-chip success text-[11px]">
+                {legitimateRatio !== null
+                  ? `${Math.round(Number(legitimateRatio))}/${100 - Math.round(Number(legitimateRatio))} RATIO`
+                  : 'AWAITING DATA'}
+              </span>
             </div>
             <h3 className="text-xl font-medium mb-2">Live Payment Volume</h3>
             <p className="caption text-xs mb-6">Real-time ISO 20022 clearing stream throughput</p>
@@ -215,7 +275,7 @@ export default function OverviewPanel({
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={ATTACK_DISTRIBUTION}
+                    data={attackMix}
                     cx="50%"
                     cy="50%"
                     innerRadius={30}
@@ -223,7 +283,7 @@ export default function OverviewPanel({
                     paddingAngle={4}
                     dataKey="value"
                   >
-                    {ATTACK_DISTRIBUTION.map((entry, index) => (
+                    {attackMix.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
@@ -233,10 +293,15 @@ export default function OverviewPanel({
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-[11px] font-medium mt-2">
-              <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#F37338]" /> Multi-Hop CNP (38%)</div>
-              <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#EB001B]" /> Synthetic ID (27%)</div>
-              <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#6366F1]" /> Prompt Injection (18%)</div>
-              <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#3860BE]" /> Voice Deepfake (12%)</div>
+              {attackMix.slice(0, 6).map((entry) => (
+                <div key={entry.name} className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                  {entry.name} ({entry.value}%)
+                </div>
+              ))}
+              {attackMix.length === 0 && (
+                <div className="caption text-[11px] col-span-2">Awaiting taxonomy data</div>
+              )}
             </div>
           </div>
         </motion.div>
@@ -306,7 +371,11 @@ export default function OverviewPanel({
                   <Bot className="w-5 h-5 text-[var(--light-signal-orange)]" />
                   <div>
                     <p className="font-semibold text-xs text-[var(--ink-black)]">MARL Adversaries</p>
-                    <p className="caption text-[11px]">Epoch #42 · 4 Bots Evolving</p>
+                    <p className="caption text-[11px]">
+                      {marlInfo
+                        ? `Epoch #${marlInfo.epoch} · ${marlInfo.agents} bots`
+                        : 'Loading…'}
+                    </p>
                   </div>
                 </div>
                 <ArrowUpRight className="w-4 h-4 text-[var(--slate-gray)] group-hover:text-black transition-colors" />
@@ -320,7 +389,11 @@ export default function OverviewPanel({
                   <Share2 className="w-5 h-5 text-[var(--link-blue)]" />
                   <div>
                     <p className="font-semibold text-xs text-[var(--ink-black)]">Federated Intelligence</p>
-                    <p className="caption text-[11px]">10 Bank Nodes · DP ε=9.5</p>
+                    <p className="caption text-[11px]">
+                      {fedInfo
+                        ? `${fedInfo.banks} bank nodes · round ${fedInfo.round}`
+                        : 'Loading…'}
+                    </p>
                   </div>
                 </div>
                 <ArrowUpRight className="w-4 h-4 text-[var(--slate-gray)] group-hover:text-black transition-colors" />
