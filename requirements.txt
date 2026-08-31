@@ -1,56 +1,52 @@
-# Core ML & Data Science
+# ThreatIQ runtime dependencies.
+#
+# This file is deliberately lean. An earlier version pulled in torch and
+# torch-geometric (about 2 GB together, loaded into RAM at import time), which
+# exhausted the memory limit on our deployment platform. The container
+# crash-looped until the platform removed the deployment entirely.
+#
+# Every package listed here is actually imported somewhere in src/. Packages
+# that were previously declared but imported nowhere have been removed:
+# matplotlib, seaborn, plotly, faker, networkx, tqdm, rich, aiofiles,
+# asyncio-throttle, python-dateutil, pyyaml, pydantic-settings, ollama, groq
+# and google-generativeai.
+
+# --- Core numerics and models ---
 numpy>=1.24.0
 pandas>=2.0.0
 scikit-learn>=1.3.0
 xgboost>=2.0.0
 lightgbm>=4.0.0
 
-# Explainability (XAI module uses SHAP with a permutation fallback)
+# --- Explainability (SHAP, with a built-in permutation fallback) ---
 shap>=0.44.0
 
-# Graph Neural Networks
-torch>=2.0.0
-torch-geometric>=2.4.0
-# pyg-lib>=0.1.0 (optional, unused)
-
-# NetworkX for graph operations
-networkx>=3.1
-
-# FastAPI & Web
+# --- API layer ---
 fastapi>=0.100.0
 uvicorn[standard]>=0.23.0
 pydantic>=2.0.0
-pydantic-settings>=2.0.0
 websockets>=11.0.0
 
-# LLM Integration (Free/Open-source)
-ollama>=0.1.0
-groq>=0.4.0
-google-generativeai>=0.3.0
-
-# Data Generation & Utilities
-faker>=20.0.0
-python-dateutil>=2.8.0
-pyyaml>=6.0.0
-tqdm>=4.65.0
-rich>=13.0.0
-
-# Visualization & Monitoring
-matplotlib>=3.7.0
-seaborn>=0.12.0
-plotly>=5.15.0
-
-# Testing
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-pytest-cov>=4.1.0
-
-# ISO 20022 / Payment Standards
+# --- ISO 20022 / ISO 8583 message formatting ---
 lxml>=4.9.0
 dicttoxml>=1.7.0
 
-# Async & Concurrency
-aiofiles>=23.0.0
-asyncio-throttle>=1.0.0
-# Test client (FastAPI TestClient)
+# --- Testing ---
+pytest>=7.4.0
 httpx>=0.24.0
+
+# --- Optional: deep-learning extras -----------------------------------------
+# torch and torch-geometric are NOT required to run ThreatIQ.
+#
+#   * The graph neural network (TransactionGNN) is not trained and is disabled
+#     at serving time, so it contributes nothing to any published metric.
+#   * The reinforcement-learning attackers fall back to a NumPy implementation
+#     of REINFORCE with a learned baseline. It genuinely learns, and it is
+#     covered by exactly the same tests as the PyTorch path.
+#
+# Install them only for local research on the GNN, or for PPO-based training:
+#
+#   pip install "torch>=2.0.0" "torch-geometric>=2.4.0"
+#
+# Note that doing so adds roughly 2 GB and will exceed the memory limit of most
+# free hosting tiers.
